@@ -11,7 +11,7 @@ filename = '../morphologies/DH070613-1-.Edit.scaled.swc'
 Rm = {'axon': 100, 'soma': 150, 'dend': 75}
 Ra = {'axon': 100, 'soma': 75, 'dend': 75}
 Cm = {'axon': 1, 'soma': 1, 'dend': 1}
-cell = RSCell(filename,Rm,Ra,Cm,5.,False)
+cell = RSCell(filename,Rm,Ra,Cm,5.)
 
 #full = np.loadtxt(cell.swc_filename)
 simple = np.loadtxt(cell.simplified_swc_filename)

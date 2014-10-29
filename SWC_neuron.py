@@ -43,8 +43,9 @@ def path_length(path):
 def simplify_tree(node, min_distance, spare_types=(), removed=None):
     if not node is None:
         if not node.parent is None and len(node.children) == 1 and not node.content['p3d'].type in spare_types:
-            dst = np.sqrt(np.sum((node.parent.content['p3d'].xyz - node.children[0].content['p3d'].xyz)**2))
-            if dst < min_distance:
+            #dst = np.sqrt(np.sum((node.parent.content['p3d'].xyz - node.children[0].content['p3d'].xyz)**2))
+            length = path_length([node.parent,node,node.children[0]])
+            if length < min_distance:
                 node.parent.children[node.parent.children.index(node)] = node.children[0]
                 node.children[0].parent = node.parent
                 if not removed is None:
@@ -53,8 +54,26 @@ def simplify_tree(node, min_distance, spare_types=(), removed=None):
         for child in node.children:
             simplify_tree(child, min_distance, spare_types, removed)
 
+def convert_morphology(filename_in, filename_out):
+    import numpy as np
+    original_morphology = np.loadtxt(filename_in)
+    idx, = np.where(original_morphology[:,1] == SWC_types['soma'])
+    soma_ids = original_morphology[idx,0]
+    center = np.mean(original_morphology[idx,2:5],axis=0)
+    original_morphology[:,2:5] -= center
+    radius = np.mean(np.sqrt(np.sum(original_morphology[idx,2:5]**2,axis=1)))
+    converted_morphology = [[1, SWC_types['soma'], 0, 0, 0, radius, -1],
+                            [2, SWC_types['soma'], 0, -radius, 0, radius, 1],
+                            [3, SWC_types['soma'], 0, radius, 0, radius, 1]]
+    for entry in original_morphology:
+        if entry[1] != SWC_types['soma']:
+            if entry[-1] in soma_ids:
+                entry[-1] = 1
+            converted_morphology.append(entry.tolist())
+    np.savetxt(filename_out, converted_morphology, '%g')
+
 class SWCCell(object):
-    def __init__(self,f_name,Rm,Ra,Cm=1,min_distance=0.):
+    def __init__(self, f_name, Rm, Ra, Cm=1, min_distance=0., convert_to_3pt_soma=True):
         """
         Rm is the input resistance of the cell, in MOhm.
         Cm is the membrane capacitance.
@@ -68,7 +87,11 @@ class SWCCell(object):
         h.load_file('stdlib.hoc')
         
         # the path of the SWC file
-        self.swc_filename = f_name
+        if convert_to_3pt_soma:
+            self.swc_filename = '.'.join(f_name.split('.')[:-1]) + '_converted.swc'
+            convert_morphology(f_name, self.swc_filename)
+        else:
+            self.swc_filename = f_name
 
         # parameters
         self.Rm = Rm
@@ -222,8 +245,8 @@ class SWCCell(object):
 
 #------------------------------Mechanisms for Regular Spiking properties------------------------
 class RSCell(SWCCell):
-    def __init__(self, swc_filename, Rm, Ra, Cm=1., min_distance=0.):
-        SWCCell.__init__(self, swc_filename, Rm, Ra, Cm, min_distance)
+    def __init__(self, swc_filename, Rm, Ra, Cm=1., min_distance=0., convert_to_3pt_soma=True):
+        SWCCell.__init__(self, swc_filename, Rm, Ra, Cm, min_distance, convert_to_3pt_soma)
         self.insert_mechanisms()
 
     def insert_mechanisms(self):
@@ -324,8 +347,8 @@ class RSCell(SWCCell):
 #------------------------------Mechanisms for Bursting properties-------------------------
 
 class IBCell(SWCCell):
-    def __init__(self, swc_filename, Rm, Ra, Cm=1., min_distance=0.):
-        SWCCell.__init__(self, swc_filename, Rm, Ra, Cm, min_distance)
+    def __init__(self, swc_filename, Rm, Ra, Cm=1., min_distance=0., convert_to_3pt_soma=True):
+        SWCCell.__init__(self, swc_filename, Rm, Ra, Cm, min_distance, convert_to_3pt_soma)
         self.insert_mechanisms()
     
     def insert_mechanisms(self):

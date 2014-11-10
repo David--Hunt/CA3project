@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import os
+import time
 import h5py as h5
 import numpy as np
 
@@ -11,7 +13,12 @@ def save_dict(fid, group, data):
         elif type(value) in (int,float,tuple,str):
             group.attrs.create(key,value)
         else:
-            group.create_dataset(key, data=np.array(value), compression='gzip', compression_opts=9)
+            try:
+                group.create_dataset(key, data=np.array(value), compression='gzip', compression_opts=9)
+            except:
+                new_group = fid.create_group(group.name + '/' + key)
+                for i,data in enumerate(value):
+                    new_group.create_dataset('%04d'%i, data=data, compression='gzip', compression_opts=9)
 
 def save_h5_file(filename, **kwargs):
     with h5.File(filename, 'w') as fid:
@@ -21,9 +28,25 @@ def load_h5_file(filename):
     with h5.File(filename, 'r') as fid:
         pass
 
+def make_output_filename(prefix='', extension='.out'):
+    filename = prefix
+    if prefix != '' and prefix[-1] != '_':
+        filename = filename + '_'
+    now = time.localtime(time.time())
+    filename = filename + '%d%02d%02d-%02d%02d%02d' % \
+        (now.tm_year, now.tm_mon, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec)
+    if extension[0] != '.':
+        extension = '.' + extension
+    suffix = ''
+    k = 0
+    while os.path.exists(filename + suffix + extension):
+        k = k+1
+        suffix = '_%d' % k
+    return filename + suffix + extension
+
 def main():
     save_h5_file('spam.h5', a=1, b='spam', c=np.random.uniform(size=10000),
-                 d={'e': 2, 'f': 'foo', 'g': [4.,5.,6.]}, h=(7,8,9))
+                 d={'e': 2, 'f': 'foo', 'g': [4.,5.,6.]}, h=(7,8,9), i=[np.arange(10),np.arange(11,16)])
 
 if __name__ == '__main__':
     main()

@@ -3,4 +3,5 @@
 *.pyc
 *.h5
 logs
+misc
 x86_64

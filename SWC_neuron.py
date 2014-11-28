@@ -6,6 +6,7 @@ import itertools as it
 import btmorph
 import neuron
 from neuron import h
+h.load_file('stdrun.hoc')
 
 SWC_types = {'soma': 1, 'axon': 2, 'basal': 3, 'apical': 4}
 
@@ -440,3 +441,246 @@ class IBCell(SWCCell):
                 if distance < 10:
                     # AIS
                     segment.hh2.gnabar = 0.25
+
+#### so far this model is not working
+class CA3RS(SWCCell):
+    def __init__(self, swc_filename, Rm, Ra, Cm=1., min_distance=0., convert_to_3pt_soma=True):
+        """
+        Hippocampal CA3 pyramidal neuron model from the paper 
+        M. Migliore, E. Cook, D.B. Jaffe, D.A. Turner and D. Johnston,
+        Computer simulations of morphologically reconstructed CA3 hippocampal neurons,
+        J. Neurophysiol. 73, 1157-1168 (1995).
+        """
+        SWCCell.__init__(self, swc_filename, Rm, Ra, Cm, min_distance, convert_to_3pt_soma)
+        ### regular spiking
+	self.gna = 0.015
+	self.gkdr = 0.03
+	self.gka = 0.001
+	self.gkm = 0.0001
+        self.gpas = 0.00018 # 1./60000.
+        ### bursting
+        #self.gna = 0.015
+	#self.gkdr = 0.009
+	#self.gka = 0.0001
+	#self.gkm = 0.00002
+        self.insert_mechanisms()
+
+    def insert_mechanisms(self):
+        print('Inserting active mechanisms...')
+        for sec in self.axon:
+            sec.Ra = 200
+            sec.insert('pas')
+            for seg in sec:
+                seg.pas.e = -65.
+                seg.pas.g = self.gpas
+
+        # insert mechanisms that are present everywhere
+        for sec in it.chain(self.soma,self.basal,self.apical):
+            sec.Ra = 200.
+            sec.insert('pas')
+            #sec.insert('cadifus')
+            #sec.insert('cal')
+            #sec.insert('can')
+            #sec.insert('cat')
+            #sec.insert('kahp')
+            #sec.insert('cagk')
+            for seg in sec:
+                seg.pas.e = -65.
+                seg.pas.g = self.gpas
+            #    seg.cal.gcalbar = 0.0025
+            #    seg.can.gcanbar = 0.0025
+            #    seg.cat.gcatbar = 0.00025
+            #    seg.kahp.gkahpbar = 0.0004
+            #    seg.cagk.gkbar = 0.00055
+            #    seg.cao = 2.
+            #    seg.cai = 50e-6
+            #    seg.ek = -91
+                seg.v = -65
+
+        count = 0
+        max_dist = 1000
+        for sec in it.chain(self.soma,
+                            filter(self.basal,self.basal_distances,max_dist)[0],
+                            filter(self.apical,self.apical_distances,max_dist)[0]):
+            sec.insert('nahh')
+            sec.insert('borgkdr')
+            #sec.insert('borgka')
+            #sec.insert('borgkm')
+            for seg in sec:
+                seg.nahh.gnabar = self.gna
+                seg.borgkdr.gkdrbar = self.gkdr
+            #    seg.borgka.gkabar = self.gka
+            #    seg.borgkm.gkmbar = self.gkm
+                seg.ek = -91.
+                seg.ena = 50.
+            count += 1
+
+        print('Added sodium channels to %d sections (%d are in the soma).' % (count,len(self.soma)))
+	h.finitialize(-65.)
+        h.fcurrent()
+        #for sec in it.chain(self.soma,self.basal,self.apical):
+        #    if h.ismembrane('nahh',sec=sec):
+        #        for seg in sec:
+        #            seg.pas.e = seg.v + (seg.ina+seg.ik+seg.ica)/seg.pas.g
+        #    else:
+        #        for seg in sec:
+        #            seg.pas.e = seg.v + (seg.ik+seg.ica)/seg.pas.g
+        h.cvode.re_init()
+
+class CA3b(SWCCell):
+    def __init__(self, swc_filename, gbars, Rm, Ra, Cm=1., kmultp=0.02, axonm=5, min_distance=0., convert_to_3pt_soma=True):
+        """
+        Hippocampal CA3b pyramidal cell model from the paper
+        Hemond, P., Epstein, D., Boley, A., Migliore, M., Ascoli, G. A., & Jaffe, D. B. (2008).
+        Distinct classes of pyramidal cells exhibit mutually exclusive firing patterns in hippocampal area CA3b.
+        Hippocampus, 18(4), 411-424. doi:10.1002/hipo.20404
+        """
+        SWCCell.__init__(self, swc_filename, Rm, Ra, Cm, min_distance, convert_to_3pt_soma)
+        self.gbars = self.fill_with_default_gbars(gbars)
+        self.somatic_mech = ['kap','cacum']
+        self.axonal_mech = ['kap']
+        self.dendritic_mech = ['kap','cacum']
+        for k,v in gbars.iteritems():
+            if v > 0:
+                if not k in self.somatic_mech:
+                    self.somatic_mech.append(k)
+                if k in ('na3','kdr') and not k in self.axonal_mech:
+                    self.axonal_mech.append(k)
+                if not k in self.dendritic_mech and k != 'km':
+                    self.dendritic_mech.append(k)
+        self.Vrest = -64
+        self.Rm = 25370.
+        self.Cm = 1.41
+        self.RaAll = 150
+        self.kmultp = kmultp
+        self.axonm = axonm
+        self.insert_mechanisms()
+
+    def fill_with_default_gbars(self, gbars):
+        gc = 1e-5
+        defaults = {'na': 0.022, 'kdr': 0.005, 'kc': 5e-5, 'km': 0.017, 'kd': 0.0, 'ahp': 0.0001,
+                 'cal': gc, 'can': gc, 'cat': gc, 'hd': 0.00001}
+        for k,v in defaults.iteritems():
+            if not k in gbars:
+                gbars[k] = v
+        gbars['na3'] = gbars['na']
+        gbars['KahpM95'] = gbars['ahp']
+        gbars['cagk'] = gbars['kc']
+        gbars.pop('na')
+        gbars.pop('ahp')
+        gbars.pop('kc')
+        return gbars
+
+    def insert_mechanisms(self):
+        print('Inserting active mechanisms...')
+        sys.stdout.write('Somatic mechanisms: ')
+        print(self.somatic_mech)
+        sys.stdout.write('Dendritic mechanisms: ')
+        print(self.dendritic_mech)
+        sys.stdout.write('Axonal mechanisms: ')
+        print(self.axonal_mech)
+        for sec in self.soma:
+            for mech in self.somatic_mech:
+                sec.insert(mech)
+            for seg in sec:
+                seg.cacum.depth = seg.diam/2
+        for sec in self.axon:
+            for mech in self.axonal_mech:
+                sec.insert(mech)
+        for sec in it.chain(self.apical,self.basal):
+            for mech in self.dendritic_mech:
+                sec.insert(mech)
+            for seg in sec:
+                seg.cacum.depth = seg.diam/2
+        #### not sure whether this is correct
+        h.ehd_hd = -30.
+        for sec in h.allsec():
+            sec.insert('pas')
+            sec.v = self.Vrest
+            sec.e_pas = self.Vrest
+            sec.g_pas = 1./self.Rm
+            sec.Ra = self.RaAll
+            sec.cm = self.Cm
+            sec.ek = -90.
+            sec.ena = 55.
+            if sec in self.axon:
+                sec.Ra = self.RaAll/3
+            #if h.ismembrane('hd',sec=sec):
+            #    sec.ehd_hd = -30
+            if h.ismembrane('cal',sec=sec):
+                sec.gcalbar_cal = self.gbars['cal']
+                sec.gcanbar_can = self.gbars['can']
+                sec.gcatbar_cat = self.gbars['cat']
+            if h.ismembrane('cagk',sec=sec):
+                sec.gbar_cagk = self.gbars['cagk']
+            if h.ismembrane('KahpM95',sec=sec):
+                sec.gbar_KahpM95 = self.gbars['KahpM95']
+
+        for sec in self.axon:
+            sec.gbar_na3 = self.gbars['na3'] * self.axonm
+            sec.gkdrbar_kdr = self.gbars['kdr']
+            sec.gkabar_kap = self.kmultp
+            sec.sh_kap = 0
+
+        for sec in self.soma:
+            sec.ghdbar_hd = self.gbars['hd']
+            sec.gbar_na3 = self.gbars['na3']
+            sec.gkdrbar_kdr = self.gbars['kdr']
+            sec.gkabar_kap = self.kmultp
+            if h.ismembrane('km',sec=sec):
+                sec.gbar_km = self.gbars['km']
+            if h.ismembrane('kd',sec=sec):
+                sec.gkdbar_kd = self.gbars['kd']
+
+        for sec in it.chain(self.basal,self.apical):
+            sec.ghdbar_hd = self.gbars['hd']
+            sec.gbar_na3 = self.gbars['na3']
+            sec.gkdrbar_kdr = self.gbars['kdr']
+            sec.gkabar_kap = self.kmultp
+
+	h.finitialize(self.Vrest)
+        h.fcurrent()
+	h.finitialize(self.Vrest)
+        for sec in h.allsec():
+            for seg in sec:
+                if h.ismembrane('cal',sec=sec):
+                    seg.pas.e = seg.v + (seg.hd.i + seg.ina + seg.ik + seg.ica)/seg.pas.g
+                else:
+                    seg.pas.e = seg.v + (seg.ina + seg.ik)/seg.pas.g
+
+	h.cvode.re_init()
+
+
+def test_CA3b(fig='9d'):
+    gbars = {'9b': {},
+             '9c': {'kdr': 0.01, 'kc': 0., 'cal': 0., 'can': 0., 'cat': 0.},
+             '9d': {'kdr': 0.01, 'kc': 0., 'cal': 0., 'can': 0., 'cat': 0., 'km': 0.},
+             '9e': {'kdr': 0.01, 'kc': 0., 'km': 0., 'kd': 0.0011, 'ahp': 0.}}
+    if not fig in gbars:
+        sys.exit(1)
+    h.cvode_active(1)
+    h.cvode.atol(1e-6)
+    h.cvode.rtol(1e-6)
+    cell = CA3b(swc_filename = '../morphologies/DH070313-.Edit.scaled.swc',
+                gbars = gbars[fig], kmultp=0.02, axonm=5, Rm = {'axon': 100, 'soma': 150, 'dend': 75},
+                Ra = {'axon': 100, 'soma': 75, 'dend': 75},
+                min_distance = 10.)
+    stim = h.IClamp(cell.soma[0](0.5))
+    stim.delay = 100
+    stim.dur = 500
+    stim.amp = 0.3
+    rec = {'t': h.Vector(), 'v': h.Vector()}
+    rec['t'].record(h._ref_t)
+    rec['v'].record(cell.soma[0](0.5)._ref_v)
+    h.tstop = 700
+    h.celsius = 36
+    h.run()
+    import pylab as p
+    p.plot(rec['t'],rec['v'],'k')
+    p.show()
+
+def main():
+    test_CA3b()
+
+if __name__ == '__main__':
+    main()

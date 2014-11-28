@@ -11,7 +11,7 @@ import h5utils as h5
 def timestamp():
     return time.strftime('%b %d, %H:%M:%S ', time.localtime(time.time()))
 
-def run_current_steps_protocol(cell, amplitudes, ttran, tstep, dt=0.025, temperature=37.):
+def run_current_steps_protocol(cell, amplitudes, ttran, tstep, dt=0.025, temperature=37., use_cvode=False):
     h.load_file('stdrun.hoc')
 
     print(timestamp() + '>> Inserting the stimulus...')
@@ -30,35 +30,59 @@ def run_current_steps_protocol(cell, amplitudes, ttran, tstep, dt=0.025, tempera
 
     h.celsius = temperature
     h.dt = dt
-    h.tstop = stim.delay - 20
-    Vrest = -73.
 
-    print(timestamp() + '>> Evolving the model until %g ms...' % h.tstop)
-    sys.stdout.flush()
-    h.run()
+    if use_cvode:
+        h.tstop = stim.delay + stim.dur + 500
+        h.cvode_active(1)
+        h.cvode.atol(1e-6)
+        h.cvode.rtol(1e-6)
+        h.cvode.maxstep(dt)
+    else:
+        h.tstop = stim.delay - 20
+        print(timestamp() + '>> Evolving the model until %g ms...' % h.tstop)
+        sys.stdout.flush()
+        h.run()
+        print(timestamp() + '>> Saving the state...')
+        ss = h.SaveState()
+        ss.save()
 
-    print(timestamp() + '>> Saving the state...')
-    ss = h.SaveState()
-    ss.save()
+    t = []
+    V = []
     spike_times = []
 
     for i,amp in enumerate(amplitudes):    
         sys.stdout.write('\r' + timestamp() + '>> Trial [%02d/%02d] ' % (i+1,len(amplitudes)))
         sys.stdout.flush()
-        ss.restore()
+        if not use_cvode:
+            ss.restore()
         stim.amp = amp
         apc.n = 0
         rec['t'].resize(0)
         rec['vsoma'].resize(0)
         rec['spikes'].resize(0)
-        h.continuerun(stim.delay + stim.dur + 500.)
-        if i == 0:
-            V = np.zeros((len(amplitudes),len(np.array(rec['vsoma']))))
-        V[i,:] = np.array(rec['vsoma'])
+        if use_cvode:
+            h.t = 0
+            h.run()
+        else:
+            h.continuerun(stim.delay + stim.dur + 500.)
+        t.append(np.array(rec['t']))
+        V.append(np.array(rec['vsoma']))
         spike_times.append(np.array(rec['spikes']))
     sys.stdout.write('\n')
 
-    return V, spike_times
+    if use_cvode:
+        return np.array(t), np.array(V), np.array(spike_times)
+    else:
+        return np.array(V), np.array(spike_times)
+
+def compute_input_resistance(t, V, I, tonset, stimdur, ttran):
+    n = len(I)
+    Vss = np.zeros(n)
+    for i in range(n):
+        idx, = np.where((t[i] > tonset+ttran) & (t[i] < tonset+stimdur))
+        Vss[i] = np.mean(V[i][idx])
+    pp = np.polyfit(I,Vss,1)
+    return pp[0],pp[1]
 
 def main():
     #filename = '../morphologies/DH070313-.Edit.scaled.swc'

@@ -4,6 +4,7 @@ import os
 import time
 import h5py as h5
 import numpy as np
+import pdb
 
 def save_dict(fid, group, data):
     for key,value in data.iteritems():
@@ -24,9 +25,22 @@ def save_h5_file(filename, **kwargs):
     with h5.File(filename, 'w') as fid:
         save_dict(fid, fid, kwargs)
 
+def load_dict(group, data):
+    for k,v in group.iteritems():
+        k = k.encode('ascii','ignore')
+        try:
+            data[k] = v[:]
+        except:
+            data[k] = {}
+            load_dict(v, data[k])
+    for k,v in group.attrs.iteritems():
+        data[k.encode('ascii','ignore')] = v
+
 def load_h5_file(filename):
+    data = {}
     with h5.File(filename, 'r') as fid:
-        pass
+        load_dict(fid, data)
+    return data
 
 def make_output_filename(prefix='', extension='.out'):
     filename = prefix
@@ -45,8 +59,12 @@ def make_output_filename(prefix='', extension='.out'):
     return filename + suffix + extension
 
 def main():
-    save_h5_file('spam.h5', a=1, b='spam', c=np.random.uniform(size=10000),
+    filename = 'spam.h5'
+    save_h5_file(filename, a=1, b='spam', c=np.random.uniform(size=10000),
                  d={'e': 2, 'f': 'foo', 'g': [4.,5.,6.]}, h=(7,8,9), i=[np.arange(10),np.arange(11,16)])
+    data = load_h5_file(filename)
+    print('Contents of file %s:' % filename)
+    print(data)
 
 if __name__ == '__main__':
     main()

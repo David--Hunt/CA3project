@@ -109,6 +109,7 @@ class SWCCell(object):
         self.load_morphology()
         self.compute_measures()
         self.insert_passive_mech()
+        self.insert_active_mech()
 
     def load_morphology(self):
         # load the tree structure that represents the morphology
@@ -162,6 +163,7 @@ class SWCCell(object):
                 cPos = node.content['p3d']
                 c_xyz = cPos.xyz
                 p_xyz = pPos.xyz
+                h.pt3dclear(sec=section)
                 h.pt3dadd(float(p_xyz[0]),float(p_xyz[1]),float(p_xyz[2]),float(pPos.radius),sec=section)
                 h.pt3dadd(float(c_xyz[0]),float(c_xyz[1]),float(c_xyz[2]),float(cPos.radius),sec=section)
                 # nseg according to NEURON book; too high in general...
@@ -222,7 +224,7 @@ class SWCCell(object):
 
     def insert_passive_mech(self):
         #Rm = self.Rm['soma'] * 1e6 * self.total_area * 1e-8   # ohm cm^2
-        #print('Total area: %.0f um^2.' % self.total_area)
+        print('Total area: %.0f um^2.' % self.total_area)
         #print('Rm = %.2f kOhm cm^2.' % (Rm*1e-3))
         #print('g_pas = %f S cm^-2.' % (1./Rm))
         for sec in h.allsec():
@@ -234,6 +236,10 @@ class SWCCell(object):
                 sec.g_pas = 1./self.Rm['axon']
             else:
                 sec.g_pas = 1./self.Rm['dend']
+
+    def insert_active_mech(self):
+        """ Must be implemented by the subclasses. """
+        pass
 
     def distance_from_soma(self, sec, x=0.5):
         return distance(self.soma[0], sec, x)
@@ -280,9 +286,8 @@ class SWCCell(object):
 class RSCell(SWCCell):
     def __init__(self, swc_filename, Rm, Ra, Cm, min_distance=0., convert_to_3pt_soma=True):
         SWCCell.__init__(self, swc_filename, -65., Rm, Ra, Cm, min_distance, convert_to_3pt_soma)
-        #self.insert_mechanisms()
-
-    def insert_mechanisms(self):
+        
+    def insert_active_mech(self):
 	##### SOMA
         for sec in self.soma:
             #sec.insert('pas') # add passive properties
@@ -366,9 +371,8 @@ class RSCell(SWCCell):
 class IBCell(SWCCell):
     def __init__(self, swc_filename, Rm, Ra, Cm, min_distance=0., convert_to_3pt_soma=True):
         SWCCell.__init__(self, swc_filename, -65., Rm, Ra, Cm, min_distance, convert_to_3pt_soma)
-        #self.insert_mechanisms()
     
-    def insert_mechanisms(self):
+    def insert_active_mech(self):
         ##### SOMA
         for sec in self.soma:
             #sec.insert('pas') # add passive properties

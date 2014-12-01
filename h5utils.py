@@ -11,7 +11,7 @@ def save_dict(fid, group, data):
         if isinstance(value, dict):
             new_group = fid.create_group(group.name + '/' + key)
             save_dict(fid, new_group, value)
-        elif type(value) in (int,float,tuple,str):
+        elif type(value) in (int,float,tuple,str) or np.isscalar(value):
             group.attrs.create(key,value)
         else:
             try:

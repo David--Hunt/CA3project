@@ -115,42 +115,38 @@ def main():
     amplitudes = np.array([amp for ampli in amplitudes for amp in ampli])
 
     # constant parameters
-    Rm = {'axon': 100, 'soma': 150, 'dend': 75}
-    Ra = {'axon': 100, 'soma': 75, 'dend': 75}
+    #Rm = {'axon': 100, 'soma': 150, 'dend': 75}
+    #Ra = {'axon': 100, 'soma': 75, 'dend': 75}
+    Rm = {'axon': 6e3, 'soma': 6e3, 'dend': 6e3}
+    Ra = {'axon': 50, 'soma': 150, 'dend': 150}
     Cm = {'axon': 1, 'soma': 1, 'dend': 1}
 
     print(timestamp() + '>> Building the model...')  
 
-    try:
-        if args.cell_type.lower() == 'rs':
-            cell = swc.RSCell(args.filename,Rm,Ra,Cm,args.simplify)
-        elif args.cell_type.lower() == 'ib':
-            cell = swc.IBCell(args.filename,Rm,Ra,Cm,args.simplify)
-        else:
-            print('Unknown cell type: %s. Aborting...' % args.cell_type)
-            sys.exit(1)
-    except:
-        print('You must specify the cell type with the -t,--cell-type option.')
-        sys.exit(2)
+    if args.cell_type.lower() == 'rs':
+        cell = swc.RSCell(args.filename,Rm,Ra,Cm,args.simplify)
+    elif args.cell_type.lower() == 'ib':
+        cell = swc.IBCell(args.filename,Rm,Ra,Cm,args.simplify)
+    else:
+        print('Unknown cell type: %s. Aborting...' % args.cell_type)
+        sys.exit(1)
 
     start = time.time()
     print(timestamp() + '>> Running the protocol...')
-    V,spike_times = run_current_steps_protocol(cell, amplitudes, args.ttran, args.tstep, args.dt, args.temperature)
+    t,V,spike_times = run_current_steps_protocol(cell, amplitudes, args.ttran, args.tstep, args.dt, args.temperature, True)
     stop = time.time()
-
+    Rin,V0 = compute_input_resistance(t, V, amplitudes, args.ttran, args.tstep, args.tstep-200)
+    print(timestamp() + '>> Input resistance: %.0f MOhm.' % Rin)
     print(timestamp() + '>> Saving the results...')
     if args.out_file is None:
         output_file = h5.make_output_filename('steps','.h5')
     else:
         output_file = args.out_file
-    try:
-        h5.save_h5_file(output_file, dt=args.dt, V=V, spike_times=spike_times,
-                        swc_file=args.filename, amplitudes=amplitudes, Rm=Rm, Ra=Ra, Cm=Cm,
-                        stimulus={'dur': args.tstep, 'delay': args.ttran}, temperature=args.temperature,
-                        simplify=args.simplify, cell_type=args.cell_type, simulation_duration=stop-start)
-    except:
-        import ipdb
-        ipdb.set_trace()
+    h5.save_h5_file(output_file, dt=args.dt, t=t, V=V, spike_times=spike_times,
+                    swc_file=args.filename, amplitudes=amplitudes, Rm=Rm, Ra=Ra, Cm=Cm,
+                    stimulus={'dur': args.tstep, 'delay': args.ttran}, temperature=args.temperature,
+                    simplify=args.simplify, cell_type=args.cell_type, simulation_duration=stop-start,
+                    Rin=Rin, V0=V0)
 
 if __name__ == '__main__':
     main()

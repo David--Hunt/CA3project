@@ -69,10 +69,8 @@ ASSIGNED {
 
 BREAKPOINT {
 	SOLVE states
-	gna = gnabar * m*m*m*h
-	gk = gkbar * n*n*n*n
-	ina = gna * (v - ena)
-	ik  = gk * (v - ek)
+	ina = gnabar * m*m*m*h * (v - ena)
+	ik = gkbar * n*n*n*n * (v - ek)
 }
 
 
@@ -128,9 +126,10 @@ PROCEDURE evaluate_fct(v(mV)) { LOCAL a,b,v2
 	tau_n = 1 / (a + b) / tadj
 	n_inf = a / (a + b)
 
-	m_exp = 1 - Exp(-dt/tau_m)
-	h_exp = 1 - Exp(-dt/tau_h)
-	n_exp = 1 - Exp(-dt/tau_n)
+:	m_exp = 1 - Exp(-dt/tau_m)
+:	h_exp = 1 - Exp(-dt/tau_h)
+:	n_exp = 1 - Exp(-dt/tau_n)
+
 }
 FUNCTION vtrap(x,y) {
 	if (fabs(x/y) < 1e-6) {

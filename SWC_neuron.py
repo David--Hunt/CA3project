@@ -108,6 +108,10 @@ class SWCCell(object):
 
         self.load_morphology()
         self.compute_measures()
+        self.soma[0] = h.Section()
+        self.soma[0].L = 50
+        self.soma[0].diam = 40
+        self.soma[0].Ra = 75
         self.insert_passive_mech()
         self.insert_active_mech()
 
@@ -223,10 +227,7 @@ class SWCCell(object):
             np.sum(self.basal_areas) + np.sum(self.axon_areas)
 
     def insert_passive_mech(self):
-        #Rm = self.Rm['soma'] * 1e6 * self.total_area * 1e-8   # ohm cm^2
         print('Total area: %.0f um^2.' % self.total_area)
-        #print('Rm = %.2f kOhm cm^2.' % (Rm*1e-3))
-        #print('g_pas = %f S cm^-2.' % (1./Rm))
         for sec in h.allsec():
             sec.insert('pas')
             sec.e_pas = self.El
@@ -288,17 +289,18 @@ class RSCell(SWCCell):
         SWCCell.__init__(self, swc_filename, -65., Rm, Ra, Cm, min_distance, convert_to_3pt_soma)
         
     def insert_active_mech(self):
-	##### SOMA
-        for sec in self.soma:
-            #sec.insert('pas') # add passive properties
-            #sec.g_pas = 0.00002        #1./(self.Rm['soma']*1000)#0.00001
-            #sec.e_pas = -60
-            sec.insert('hh2') # add Na+ and K+ HH conductances
+        for sec in self.soma:#h.allsec():
+            sec.insert('hh2')
             sec.ek = -90
             sec.ena = 50
             sec.vtraub_hh2 = -55
             sec.gnabar_hh2 = 0.05
             sec.gkbar_hh2 = 0.005
+
+	##### SOMA
+        for sec in self.soma:
+            sec.g_pas = 0.00002
+            sec.e_pas = -60
             sec.insert('im') # add M conductances
             h.taumax_im = 1000
             sec.gkbar_im = 1e-3
@@ -315,26 +317,17 @@ class RSCell(SWCCell):
             sec.insert('ical') # add L-type Ca2+ conductance	
             sec.gcabar_ical = 1e-4
             sec.insert('KahpM95') # add calcium activated potassium conductance (I_ahp)
-            #sec.cai = 50e-6 # !!! Ca^i is just one value per section
+            sec.cai = 50e-6 # !!! Ca^i is just one value per section
             sec.gbar_KahpM95 = 0.03
-            sec.insert('kd') # add delay rectifier K+ conductance
-            sec.ek = -90
-            sec.gkdbar_kd = 1e-5
+            sec.insert('kd')
+            sec.gkdbar_kd = 1e-4
             sec.insert('napinst') # add persistent Na+ conductance
-            sec.ena = 50
             sec.gbar_napinst = 1e-8
 
 	##### DENDRITES
 	for sec in it.chain(self.basal,self.apical):
-            #sec.insert('pas') # add passive properties
-            #sec.g_pas = 0.0005 # 1./(self.Rm['dend']*1000)
-            #sec.e_pas = -70
-            sec.insert('hh2') # add hodgkin huxley Na+ and K+ conductances
-	    sec.ek = -90
-            sec.ena = 50
-            sec.vtraub_hh2 = -55
-            sec.gnabar_hh2 = 0.05
-            sec.gkbar_hh2 = 0.005
+            sec.g_pas = 0.0005
+            sec.e_pas = -70
             sec.insert('cad') # add Ca2+ decay dynamics
             sec.depth_cad = 1
             sec.taur_cad = 5
@@ -348,24 +341,19 @@ class RSCell(SWCCell):
             sec.insert('ical') # add L-type Ca2+ conductance
             sec.gcabar_ical = 1e-4
             sec.insert('KahpM95') # add calcium activated potassium conductance
-            #sec.cai = 50e-6 # !!! Ca^i is just one value per section
+            sec.cai = 50e-6 # !!! Ca^i is just one value per section
             sec.gbar_KahpM95 = 0.02
             sec.insert('kd') # add delayed rectifier K+ conductance
             sec.gkdbar_kd = 1e-4
 
         ##### AXON
         for sec,distance in zip(self.axon,self.axon_length):
-            #sec.insert('pas')
-            #sec.g_pas = 1./(self.Rm['axon']*1000)
-            #sec.e_pas = -70
-            sec.insert('hh2')
-            sec.vtraub_hh2 = -55
+            sec.e_pas = -70
+            sec.g_pas = 1./100e3
             sec.gkbar_hh2 = 0.006
-            sec.gnabar_hh2 = 0.05
             if distance < 10:
                 # AIS
                 sec.gnabar_hh2 = 0.25
-
 
 #------------------------------Mechanisms for Bursting properties-------------------------
 class IBCell(SWCCell):
@@ -535,15 +523,15 @@ class CA3RS(SWCCell):
         h.cvode.re_init()
 
 class CA3b(SWCCell):
-    def __init__(self, swc_filename, gbars, Rm, Ra, Cm, kmultp=0.02, axonm=5, min_distance=0., convert_to_3pt_soma=True):
+    def __init__(self, swc_filename, gbars, kmultp=0.02, axonm=5, min_distance=0., convert_to_3pt_soma=True):
         """
         Hippocampal CA3b pyramidal cell model from the paper
         Hemond, P., Epstein, D., Boley, A., Migliore, M., Ascoli, G. A., & Jaffe, D. B. (2008).
         Distinct classes of pyramidal cells exhibit mutually exclusive firing patterns in hippocampal area CA3b.
         Hippocampus, 18(4), 411-424. doi:10.1002/hipo.20404
         """
-        SWCCell.__init__(self, swc_filename, -65., Rm, Ra, Cm, min_distance, convert_to_3pt_soma)
         self.gbars = self.fill_with_default_gbars(gbars)
+        print self.gbars
         self.somatic_mech = ['kap','cacum']
         self.axonal_mech = ['kap']
         self.dendritic_mech = ['kap','cacum']
@@ -556,12 +544,13 @@ class CA3b(SWCCell):
                 if not k in self.dendritic_mech and k != 'km':
                     self.dendritic_mech.append(k)
         self.Vrest = -64
-        self.Rm = 25370.
-        self.Cm = 1.41
-        self.RaAll = 150
         self.kmultp = kmultp
         self.axonm = axonm
-        self.insert_mechanisms()
+        Rm = 25370.
+        #Rm *= 3
+        SWCCell.__init__(self, swc_filename, self.Vrest, {'axon': Rm, 'soma': Rm, 'dend': Rm},
+                         {'axon': 50., 'soma': 150., 'dend': 150.}, {'axon': 1.41, 'soma': 1.41, 'dend': 1.41},
+                         min_distance, convert_to_3pt_soma)
 
     def fill_with_default_gbars(self, gbars):
         gc = 1e-5
@@ -570,6 +559,7 @@ class CA3b(SWCCell):
         for k,v in defaults.iteritems():
             if not k in gbars:
                 gbars[k] = v
+                print k
         gbars['na3'] = gbars['na']
         gbars['KahpM95'] = gbars['ahp']
         gbars['cagk'] = gbars['kc']
@@ -578,7 +568,7 @@ class CA3b(SWCCell):
         gbars.pop('kc')
         return gbars
 
-    def insert_mechanisms(self):
+    def insert_active_mech(self):
         print('Inserting active mechanisms...')
         sys.stdout.write('Somatic mechanisms: ')
         print(self.somatic_mech)
@@ -602,18 +592,8 @@ class CA3b(SWCCell):
         #### not sure whether this is correct
         h.ehd_hd = -30.
         for sec in h.allsec():
-            sec.insert('pas')
-            sec.v = self.Vrest
-            sec.e_pas = self.Vrest
-            sec.g_pas = 1./self.Rm
-            sec.Ra = self.RaAll
-            sec.cm = self.Cm
             sec.ek = -90.
             sec.ena = 55.
-            if sec in self.axon:
-                sec.Ra = self.RaAll/3
-            #if h.ismembrane('hd',sec=sec):
-            #    sec.ehd_hd = -30
             if h.ismembrane('cal',sec=sec):
                 sec.gcalbar_cal = self.gbars['cal']
                 sec.gcanbar_can = self.gbars['can']
@@ -648,17 +628,43 @@ class CA3b(SWCCell):
 	h.finitialize(self.Vrest)
         h.fcurrent()
 	h.finitialize(self.Vrest)
+        e = []
+        # the purpose of this is to compute a reversal potential for the leak conductance
+        # such that when Vm = Vrest the leak current equals 0
         for sec in h.allsec():
             for seg in sec:
                 if h.ismembrane('cal',sec=sec):
                     seg.pas.e = seg.v + (seg.hd.i + seg.ina + seg.ik + seg.ica)/seg.pas.g
                 else:
                     seg.pas.e = seg.v + (seg.ina + seg.ik)/seg.pas.g
-
+                if h.secname(sec=sec) in ('sec_2','sec_22'):
+                    print seg.v, seg.hd.i, seg.ina, seg.ik, seg.ica, seg.pas.g
+                if seg.pas.e > 0:
+                    print('%s(%g).pas.e = %g' % (h.secname(sec=sec),seg.x,seg.pas.e))
+                e.append(seg.pas.e)
 	h.cvode.re_init()
+        El = np.unique(e)
+        for el in El:
+            idx, = np.where(e == el)
+            print('%g -> %d' % (el,len(idx)))
 
+class CA3bRS(CA3b):
+    def __init__(self, swc_filename, min_distance=0., convert_to_3pt_soma=True):
+        gc = 1e-5
+        km = 0.017
+        CA3b.__init__(self, swc_filename, {'na': 0.022, 'kdr': 0.01, 'kc': 0., 'km': 0.001, 'kd': 0.0,
+                                           'ahp': 0.001, 'cal': gc, 'can': gc, 'cat': gc, 'hd': 0.00001},
+                      min_distance=min_distance, convert_to_3pt_soma=convert_to_3pt_soma)
 
-def test_CA3b(fig='9d'):
+class CA3bIB(CA3b):
+    def __init__(self, swc_filename, min_distance=0., convert_to_3pt_soma=True):
+        gc = 1e-5
+        km = 0.017
+        CA3b.__init__(self, swc_filename, {'na': 0.022, 'kdr': 0.005, 'kc': 5e-5, 'km': 0.001, 'kd': 0.0,
+                                     'ahp': 0.0001, 'cal': gc, 'can': gc, 'cat': gc, 'hd': 0.00001},
+                      min_distance=min_distance, convert_to_3pt_soma=convert_to_3pt_soma)
+
+def test_CA3b(fig='9b'):
     gbars = {'9b': {},
              '9c': {'kdr': 0.01, 'kc': 0., 'cal': 0., 'can': 0., 'cat': 0.},
              '9d': {'kdr': 0.01, 'kc': 0., 'cal': 0., 'can': 0., 'cat': 0., 'km': 0.},
@@ -666,20 +672,20 @@ def test_CA3b(fig='9d'):
     if not fig in gbars:
         sys.exit(1)
     h.cvode_active(1)
-    h.cvode.atol(1e-6)
-    h.cvode.rtol(1e-6)
-    cell = CA3b(swc_filename = '../morphologies/DH070313-.Edit.scaled.swc',
-                gbars = gbars[fig], kmultp=0.02, axonm=5, Rm = {'axon': 100, 'soma': 150, 'dend': 75},
-                Ra = {'axon': 100, 'soma': 75, 'dend': 75},
-                min_distance = 10.)
+    #h.cvode.atol(1e-6)
+    #h.cvode.rtol(1e-6)
+    # regular spiking cell
+    cell = CA3bRS(swc_filename = '../morphologies/DH070313-.Edit.scaled.swc', min_distance = 10.)
+    # intrinsic bursting cell
+    #cell = CA3bIB(swc_filename = '../morphologies/DH070313-.Edit.scaled.swc', min_distance = 10.)
     stim = h.IClamp(cell.soma[0](0.5))
-    stim.delay = 100
+    stim.delay = 250
     stim.dur = 500
-    stim.amp = 0.3
+    stim.amp = 0.6
     rec = {'t': h.Vector(), 'v': h.Vector()}
     rec['t'].record(h._ref_t)
     rec['v'].record(cell.soma[0](0.5)._ref_v)
-    h.tstop = 700
+    h.tstop = 1000
     h.celsius = 36
     h.run()
     import pylab as p

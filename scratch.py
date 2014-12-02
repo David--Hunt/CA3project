@@ -11,20 +11,21 @@ import numpy as np
 h.load_file('stdrun.hoc')
 filename = '../morphologies/DH070313-.Edit.scaled.swc'# designate morphology to be used (SWC file name)
 #filename = '../morphologies/DH070613-1-.Edit.scaled.swc'
+#filename = '../morphologies/DH070613-1-.Edit.scaled.swc'
 #Rm = {'axon': 100, 'soma': 150, 'dend': 75}
-#Ra = {'axon': 100, 'soma': 75, 'dend': 75}
-Rm = {'axon': 6e3, 'soma': 6e3, 'dend': 6e3}
-Ra = {'axon': 50, 'soma': 150, 'dend': 150}
+Ra = {'axon': 100, 'soma': 75, 'dend': 75}
+Rm = {'axon': 100e3, 'soma': 50e3, 'dend': 2e3}
+#Ra = {'axon': 50, 'soma': 150, 'dend': 150}
 Cm = {'axon': 1, 'soma': 1, 'dend': 1}
 
-n = RSCell(filename,Rm,Ra,Cm,10,True) # designate intrinsic properties (bursting or regular spiking)
+n = RSCell(filename,Rm,Ra,Cm,0,True) # designate intrinsic properties (bursting or regular spiking)
 #n = IBCell(filename,Rm,Ra,Cm,10,True) # designate intrinsic properties (bursting or regular spiking)
 
 # insert current stimulus in the soma
 ic = h.IClamp(n.soma[0](0.5))
-ic.amp = -0.1
-ic.dur = 1500
-ic.delay = 250
+ic.amp = 0.2
+ic.dur = 200
+ic.delay = 200
 
 # make the recorders
 rec = {}
@@ -60,31 +61,33 @@ sec = pick_section(sections)
 rec['vaxon'].record(sec(0.5)._ref_v)
 
 # record fast and persistent sodium conductances
-#rec['gnaf'].record(n.soma[0](0.5).hh2._ref_gna)
+#rec['gnaf'].record(n.soma[0](0.5).km._ref_m)
 #rec['gnap'].record(n.soma[0](0.5).napinst._ref_gna)
 
 h.celsius = 35
-h.tstop = 2000
+h.tstop = 400
 h.cvode_active(1)
-h.cvode.maxstep(10)
+h.cvode.maxstep(1)
+h.cvode.atol(1e-6)
+h.cvode.rtol(1e-6)
 print('Running the simulation...')
 h.run()
 
 #---------------------plotting the outputs-----------------------------
 
 p.figure()
-#p.subplot(2,1,1)
+#ax = p.subplot(2,1,1)
 p.plot(rec['t'],rec['vsoma'],'k',label='Soma')
-p.plot(rec['t'],rec['vais'],'r',label='AIS')
-p.plot(rec['t'],rec['vaxon'],'g',label='Axon')
-p.plot(rec['t'],rec['vbasal'],'b',label='Basal')
-p.plot(rec['t'],rec['vapical'],'m',label='Apical')
+#p.plot(rec['t'],rec['vais'],'r',label='AIS')
+#p.plot(rec['t'],rec['vaxon'],'g',label='Axon')
+#p.plot(rec['t'],rec['vbasal'],'b',label='Basal')
+#p.plot(rec['t'],rec['vapical'],'m',label='Apical')
 p.xlabel('Time (ms)')
 p.ylabel('Voltage (mV)')
 #p.ylim([-100,50])
 p.legend(loc='best')
-#p.subplot(2,1,2)
-#INaf = np.array(rec['gnaf'])*(np.array(rec['vsoma']) - n.soma[0].ena)
+#p.subplot(2,1,2,sharex=ax)
+#INaf = n.soma[0].gbar_km * np.array(rec['gnaf'])*(np.array(rec['vsoma']) - n.soma[0].ena)
 #INap = np.array(rec['gnap'])*(np.array(rec['vsoma']) - n.soma[0].ena)
 #p.plot(rec['t'],INaf,'k',label='INa,f')
 #p.plot(rec['t'],INap,'r',label='INa,p')

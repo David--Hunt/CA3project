@@ -12,20 +12,20 @@ h.load_file('stdrun.hoc')
 filename = '../morphologies/DH070313-.Edit.scaled.swc'# designate morphology to be used (SWC file name)
 #filename = '../morphologies/DH070613-1-.Edit.scaled.swc'
 #filename = '../morphologies/DH070613-1-.Edit.scaled.swc'
-#Rm = {'axon': 100, 'soma': 150, 'dend': 75}
+Rm = {'axon': 100, 'soma': 150, 'dend': 75}
 Ra = {'axon': 100, 'soma': 75, 'dend': 75}
-Rm = {'axon': 100e3, 'soma': 50e3, 'dend': 2e3}
+#Rm = {'axon': 100e3, 'soma': 50e3, 'dend': 2e3}
 #Ra = {'axon': 50, 'soma': 150, 'dend': 150}
 Cm = {'axon': 1, 'soma': 1, 'dend': 1}
 
-n = RSCell(filename,Rm,Ra,Cm,0,True) # designate intrinsic properties (bursting or regular spiking)
+n = RSCell(filename,Rm,Ra,Cm) # designate intrinsic properties (bursting or regular spiking)
 #n = IBCell(filename,Rm,Ra,Cm,10,True) # designate intrinsic properties (bursting or regular spiking)
 
 # insert current stimulus in the soma
 ic = h.IClamp(n.soma[0](0.5))
-ic.amp = 0.2
+ic.amp = 0.6
 ic.dur = 200
-ic.delay = 200
+ic.delay = 50
 
 # make the recorders
 rec = {}
@@ -37,35 +37,35 @@ rec['t'].record(h._ref_t)
 rec['vsoma'].record(n.soma[0](0.5)._ref_v)
 
 # record the voltage at one of the basal dendrites
-dist = 200.
-sections,idx = filter(n.basal,n.basal_distances,dist)
-sec = pick_section(sections)
-rec['vbasal'].record(sec(0.5)._ref_v)
+#dist = 200.
+#sections,idx = filter(n.basal,n.basal_distances,dist)
+#sec = pick_section(sections)
+#rec['vbasal'].record(sec(0.5)._ref_v)
 
 # record the voltage at one of the apical dendrites
-dist = 300.
-sections,idx = filter(n.apical,n.apical_distances,dist)
-sec = pick_section(sections)
-rec['vapical'].record(sec(0.5)._ref_v)
+#dist = 300.
+#sections,idx = filter(n.apical,n.apical_distances,dist)
+#sec = pick_section(sections)
+#rec['vapical'].record(sec(0.5)._ref_v)
 
 # record the voltage at the axon initial segment
-dist = 20.
-sections,idx = filter(n.axon,n.axon_length,dist)
-sec = pick_section(sections)
-rec['vais'].record(sec(0.5)._ref_v)
+#dist = 20.
+#sections,idx = filter(n.axon,n.axon_length,dist)
+#sec = pick_section(sections)
+#rec['vais'].record(sec(0.5)._ref_v)
 
 # record the voltage in the axon
-dist = 100
-sections,idx = filter(n.axon,n.axon_length,dist)
-sec = pick_section(sections)
-rec['vaxon'].record(sec(0.5)._ref_v)
+#dist = 100
+#sections,idx = filter(n.axon,n.axon_length,dist)
+#sec = pick_section(sections)
+#rec['vaxon'].record(sec(0.5)._ref_v)
 
 # record fast and persistent sodium conductances
 #rec['gnaf'].record(n.soma[0](0.5).km._ref_m)
 #rec['gnap'].record(n.soma[0](0.5).napinst._ref_gna)
 
 h.celsius = 35
-h.tstop = 400
+h.tstop = 300
 h.cvode_active(1)
 h.cvode.maxstep(1)
 h.cvode.atol(1e-6)

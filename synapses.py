@@ -3,12 +3,22 @@ import numpy as np
 import pylab as p
 from neuron import h
 
+def generate_poisson_spike_times(rate, tend):
+    n = rate*tend
+    isi = -np.log(np.random.uniform(size=n))/rate
+    spike_times = np.cumsum(isi)
+    return spike_times,isi
+
 class Synapse (object):
-    def __init__(self, weight, delay=1.):
+    def __init__(self, sec, x, weight, delay=1.):
+        self.syn = self.make_synapse(sec, x)
         self.stim = h.VecStim()
         self.nc = h.NetCon(self.stim, self.syn)
         self.nc.weight[0] = weight
         self.nc.delay = delay
+
+    def make_synapse(self, sec, x):
+        raise NotImplementedError()
 
     def set_presynaptic_spike_times(self, spike_times):
         self.spike_times = h.Vector(spike_times)
@@ -16,17 +26,32 @@ class Synapse (object):
 
 class BiExponentialSynapse (Synapse):
     def __init__(self, sec, x, E, tau1, tau2, weight, delay=1.):
-        self.syn = h.Exp2Syn(sec(x))
+        Synapse.__init__(self, sec, x, weight, delay)
         self.syn.tau1 = tau1
         self.syn.tau2 = tau2
         self.syn.e = E
-        Synapse.__init__(self, weight, delay)
+
+    def make_synapse(self, sec, x):
+        syn = h.Exp2Syn(sec(x))
+        return syn
 
 class AMPASynapse (Synapse):
     def __init__(self, sec, x, E, weight, delay=1.):
-        self.syn = h.AMPA_S(sec(x))
-        self.Erev = E
-        Synapse.__init__(self, weight, delay)
+        Synapse.__init__(self, sec, x, weight, delay)
+        h.Erev_AMPA_S = E
+
+    def make_synapse(self, sec, x):
+        syn = h.AMPA_S(sec(x))
+        return syn
+
+class AMPANMDASynapse (Synapse):
+    def __init__(self, sec, x, E, weight, delay=1.):
+        Synapse.__init__(self, sec, x, weight, delay)
+        h.E_AmpaNmda = E
+
+    def make_synapse(self, sec, x):
+        syn = h.AmpaNmda(sec(x))
+        return syn
 
 def main():
     import pylab as p

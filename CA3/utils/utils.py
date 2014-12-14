@@ -4,7 +4,7 @@ import numpy as np
 
 __all__ = ['psth','generate_poisson_spike_times','make_voltage_recorders','run',
            'distance','pick_section','filter','path_length','simplify_tree',
-           'convert_morphology','compute_section_area']
+           'convert_morphology','compute_section_area','SWC_types']
 
 SWC_types = {'soma': 1, 'axon': 2, 'basal': 3, 'apical': 4}
 

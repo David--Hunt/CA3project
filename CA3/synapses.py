@@ -1,21 +1,30 @@
 
 import numpy as np
-import pylab as p
 from neuron import h
 
-def generate_poisson_spike_times(rate, tend):
-    n = rate*tend
-    isi = -np.log(np.random.uniform(size=n))/rate
-    spike_times = np.cumsum(isi)
-    return spike_times,isi
+__all__ = ['Synapse','BiExponentialSynapse','AMPASynapse','AMPANMDASynapse']
 
 class Synapse (object):
     def __init__(self, sec, x, weight, delay=1.):
         self.syn = self.make_synapse(sec, x)
         self.stim = h.VecStim()
         self.nc = h.NetCon(self.stim, self.syn)
-        self.nc.weight[0] = weight
-        self.nc.delay = delay
+        self.nc.weight[0] = max(0., np.random.normal(loc=weight['mean'],scale=weight['std']))
+        #try:
+        #    self.nc.weight[0] = weight
+        #except:
+        #    if 'mean' in weight and 'std' in weight:
+        #        self.nc.weight[0] = max(0., np.random.normal(loc=weight['mean'],scale=weight['std']))
+        #    else:
+        #        raise Exception('Wrong value for weight')
+        self.nc.delay = max(0., np.random.normal(loc=delay['mean'],scale=delay['std']))
+        #try:
+        #    self.nc.delay = delay
+        #except:
+        #    if 'mean' in delay and 'std' in delay:
+        #        self.nc.delay = max(0., np.random.normal(loc=delay['mean'],scale=delay['std']))
+        #    else:
+        #        raise Exception('Wrong value for delay')
 
     def make_synapse(self, sec, x):
         raise NotImplementedError()
@@ -54,7 +63,6 @@ class AMPANMDASynapse (Synapse):
         return syn
 
 def main():
-    import pylab as p
     soma = h.Section()
     soma.insert('pas')
     soma.L = 100
@@ -78,6 +86,7 @@ def main():
     h.celsius = 37
     h.tstop = len(weights)*50 + 100
     h.run()
+    import pylab as p
     p.subplot(2,1,1)
     p.plot(rec['t'],rec['v'],'k')
     p.ylabel('Voltage (mV)')

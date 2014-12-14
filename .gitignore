@@ -1,6 +1,7 @@
 *~
 *.swc
 *.pyc
+*.pyo
 *.h5
 logs
 misc

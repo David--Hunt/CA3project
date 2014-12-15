@@ -9,7 +9,11 @@ __all__ = ['save_h5_file','load_h5_file','make_output_filename']
 def save_dict(fid, group, data):
     for key,value in data.iteritems():
         if isinstance(value, dict):
-            new_group = fid.create_group(group.name + '/' + key)
+            name = group.name + '/' + key
+            try:
+                new_group = fid[name]
+            except:
+                new_group = fid.create_group(name)
             save_dict(fid, new_group, value)
         elif type(value) in (int,float,tuple,str) or np.isscalar(value):
             group.attrs.create(key,value)
@@ -21,8 +25,8 @@ def save_dict(fid, group, data):
                 for i,data in enumerate(value):
                     new_group.create_dataset('%04d'%i, data=data, compression='gzip', compression_opts=9)
 
-def save_h5_file(filename, **kwargs):
-    with h5.File(filename, 'w') as fid:
+def save_h5_file(filename, mode='w', **kwargs):
+    with h5.File(filename, mode) as fid:
         save_dict(fid, fid, kwargs)
 
 def load_dict(group, data):
@@ -60,8 +64,9 @@ def make_output_filename(prefix='', extension='.out'):
 
 def main():
     filename = 'spam.h5'
-    save_h5_file(filename, a=1, b='spam', c=np.random.uniform(size=10000),
+    save_h5_file(filename, 'w', a=1, b='spam', c=np.random.uniform(size=10000),
                  d={'e': 2, 'f': 'foo', 'g': [4.,5.,6.]}, h=(7,8,9), i=[np.arange(10),np.arange(11,16)])
+    save_h5_file(filename, 'a', d={'l': [7.,8.,9.]})
     data = load_h5_file(filename)
     print('Contents of file %s:' % filename)
     print(data)

@@ -129,13 +129,13 @@ class Neuron:
             # the areas of the sections in the axon
             self.axon_areas = []
             # the path length of each section in the axon from the root
-            self.axon_length = []
+            self.axon_lengths = []
             for sec in self.axon:
                 self.axon_areas.append(compute_section_area(sec))
                 # here we are assuming that the axon extends vertically from the soma,
                 # in which case distance and path length are the same. if this is not the
                 # case, the subclass should override this method and implement its own code
-                self.axon_length.append(self.distance_from_soma(sec))
+                self.axon_lengths.append(self.distance_from_soma(sec))
             self.total_area += np.sum(self.axon_areas)
 
     def insert_passive_mech(self):
@@ -532,26 +532,48 @@ class SWCNeuron (SimplifiedNeuron):
                 self.proximal.append(sec)
             else:
                 self.distal.append(sec)
+        del self.apical
 
     def compute_measures(self):
         Neuron.compute_measures(self)
+        self.compute_path_lengths()
+
+    def compute_path_lengths(self):
+        axon_root = None
+        for node in self.tree:
+            if node.content['p3d'].type != SWC_types['axon']:
+                # the path length is referred to the root of the tree
+                if node is self.tree.root:
+                    length = {node.index: 0.}
+                else:
+                    length[node.index] = length[node.parent.index] + \
+                        np.sqrt(np.sum((node.parent.content['p3d'].xyz - node.content['p3d'].xyz)**2))
+            else:
+                # let's be a little more precise for the axon.
+                # the axon root is the section of type ''axon'' that is closest to the soma:
+                # we will measure axon length from there instead of from the root of the tree
+                if axon_root is None:
+                    axon_root = node
+                    axon_length = {axon_root.index: path_length(self.tree.path_between_nodes(axon_root, axon_root.parent))}
+                else:
+                    axon_length[node.index] = axon_length[node.parent.index] + \
+                        np.sqrt(np.sum((node.parent.content['p3d'].xyz - node.content['p3d'].xyz)**2))
+        self.soma_lengths = []
+        for sec in self.soma:
+            self.soma_lengths.append(length[self.section_index(sec)])
+        self.basal_lengths = []
+        for sec in self.basal:
+            self.basal_lengths.append(length[self.section_index(sec)])
+        self.proximal_lengths = []
+        for sec in self.proximal:
+            self.proximal_lengths.append(length[self.section_index(sec)])
+        self.distal_lengths = []
+        for sec in self.distal:
+            self.distal_lengths.append(length[self.section_index(sec)])
         if self.has_axon:
-            # the axon root is the section of type ''axon'' that is closest to the soma
-            axon_root = None
-            for node in self.tree:
-                swc_type = node.content['p3d'].type
-                if swc_type == SWC_types['axon']:
-                    if axon_root is None:
-                        axon_root = node
-                        length = {axon_root.index: path_length(self.tree.path_between_nodes(axon_root, axon_root.parent))}
-                    else:
-                        length[node.index] = length[node.parent.index] + \
-                            np.sqrt(np.sum((node.parent.content['p3d'].xyz - node.content['p3d'].xyz)**2))
-            # the path length of each section in the axon from the root
-            self.axon_length = []
+            self.axon_lengths = []
             for sec in self.axon:
-                index = self.section_index(sec)
-                self.axon_length.append(length[index])
+                self.axon_lengths.append(axon_length[self.section_index(sec)])
 
     def path_length_to_root(self, node):
         return path_length(self.tree.path_to_root(node))

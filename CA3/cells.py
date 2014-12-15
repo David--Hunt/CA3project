@@ -24,6 +24,7 @@ class Neuron:
         if self.has_axon:
             self.axon = []
         self.build_morphology()
+        self.compute_measures()
         self.compute_total_area()
         self.insert_passive_mech()
         if self.has_active:
@@ -101,7 +102,7 @@ class Neuron:
         # the distances of all proximal apical sections from the soma: here the
         # distance is just the Euclidean one, not the path length
         self.proximal_distances = []
-        for sec in self.apical:
+        for sec in self.proximal:
             self.proximal_distances.append(self.distance_from_soma(sec))
             self.proximal_areas.append(compute_section_area(sec))
 
@@ -120,9 +121,9 @@ class Neuron:
         for sec in self.basal:
             self.basal_distances.append(self.distance_from_soma(sec))
             self.basal_areas.append(compute_section_area(sec))
-        
-        self.total_area = np.sum(self.soma_areas) + np.sum(self.apical_areas) + \
-            np.sum(self.basal_areas)
+
+        self.total_area = np.sum(self.soma_areas) + np.sum(self.proximal_areas) + \
+            np.sum(self.distal_areas) + np.sum(self.basal_areas)
 
         if self.has_axon:
             # the areas of the sections in the axon
@@ -199,9 +200,9 @@ class SimplifiedNeuron (Neuron):
 
     def make_sections(self):
         self.soma = [h.Section(name='soma')]
-        self.basal = [h.Section(name='basal-%d' % i) for i in range(2)]
+        self.basal = [h.Section(name='basal')]
         self.proximal = [h.Section(name='proximal')]
-        self.distal = [h.Section(name='distal-%d' % i) for i in range(3)]
+        self.distal = [h.Section(name='distal')]
         if self.has_axon:
             self.axon = [h.Section(name='axon-%d' % i) for i in range(5)]
 
@@ -222,9 +223,9 @@ class SimplifiedNeuron (Neuron):
         self.soma[0].diam = self.parameters['soma']['diam']
         self.proximal[0].L = self.parameters['proximal']['L']
         self.proximal[0].diam = self.parameters['proximal']['diam']
-        for i in range(3):
-            self.distal[i].L = self.parameters['distal']['L']
-            self.distal[i].diam = self.parameters['distal']['diam']
+        for d in self.distal:
+            d.L = self.parameters['distal']['L']
+            d.diam = self.parameters['distal']['diam']
         for d in self.basal:
             d.L = self.parameters['basal']['L']
             d.diam = self.parameters['basal']['diam']
@@ -235,8 +236,8 @@ class SimplifiedNeuron (Neuron):
 
     def connect_sections(self):
         self.proximal[0].connect(self.soma[0], 1, 0)
-        for i in range(3):
-            self.distal[i].connect(self.proximal[0], 1, 0)
+        for d in self.distal:
+            d.connect(self.proximal[0], 1, 0)
         for d in self.basal:
             d.connect(self.soma[0], 0, 0)
         if self.has_axon:
@@ -414,6 +415,56 @@ class SimplifiedNeuron (Neuron):
             sec.gcatbar_cat = gbar['cat']
             sec.gcanbar_can = gbar['can']
 
+class AThornyNeuron (SimplifiedNeuron):
+    def __init__(self, parameters, with_axon=True, with_active=True):
+        SimplifiedNeuron.__init__(self, parameters, with_axon, with_active)
+
+    def make_sections(self):
+        self.soma = [h.Section(name='soma')]
+        self.basal = [h.Section(name='basal-%d' % i) for i in range(2)]
+        self.proximal = [h.Section(name='proximal')]
+        self.distal = [h.Section(name='distal-%d' % i) for i in range(2)]
+        if self.has_axon:
+            self.axon = [h.Section(name='axon-%d' % i) for i in range(5)]
+
+    def connect_sections(self):
+        self.proximal[0].connect(self.soma[0], 1, 0)
+        for d in self.distal:
+            d.connect(self.proximal[0], 1, 0)
+        for d in self.basal:
+            d.connect(self.soma[0], 0, 0)
+        if self.has_axon:
+            self.axon[0].connect(self.soma[0], 0, 0)
+            for i in range(1,len(self.axon)):
+                self.axon[i].connect(self.axon[i-1], 1, 0)
+        
+class ThornyNeuron (SimplifiedNeuron):
+    def __init__(self, parameters, with_axon=True, with_active=True):
+        SimplifiedNeuron.__init__(self, parameters, with_axon, with_active)
+
+    def make_sections(self):
+        self.soma = [h.Section(name='soma')]
+        self.basal = [h.Section(name='basal-%d' % i) for i in range(4)]
+        self.proximal = [h.Section(name='proximal')]
+        self.distal = [h.Section(name='distal-%d' % i) for i in range(6)]
+        if self.has_axon:
+            self.axon = [h.Section(name='axon-%d' % i) for i in range(5)]
+
+    def connect_sections(self):
+        self.proximal[0].connect(self.soma[0], 1, 0)
+        self.distal[0].connect(self.proximal[0], 1, 0)
+        self.distal[1].connect(self.proximal[0], 1, 0)
+        self.distal[2].connect(self.distal[0], 1, 0)
+        self.distal[3].connect(self.distal[0], 1, 0)
+        self.distal[4].connect(self.distal[1], 1, 0)
+        self.distal[5].connect(self.distal[1], 1, 0)
+        for d in self.basal:
+            d.connect(self.soma[0], 0, 0)
+        if self.has_axon:
+            self.axon[0].connect(self.soma[0], 0, 0)
+            for i in range(1,len(self.axon)):
+                self.axon[i].connect(self.axon[i-1], 1, 0)
+        
 class SWCNeuron (SimplifiedNeuron):
     def __init__(self, parameters, with_axon=True, with_active=True, convert_to_3pt_soma=True):
         if convert_to_3pt_soma:
@@ -502,6 +553,12 @@ class SWCNeuron (SimplifiedNeuron):
                 index = self.section_index(sec)
                 self.axon_length.append(length[index])
 
+    def path_length_to_root(self, node):
+        return path_length(self.tree.path_to_root(node))
+
+    def section_index(self, section):
+        return int(h.secname(sec=section).split('_')[-1])
+
 class SimplifiedNeuron3D (SimplifiedNeuron):
     def __init__(self, parameters, with_active=True):
         SimplifiedNeuron.__init__(self, parameters, with_active)
@@ -547,8 +604,11 @@ def run_step(amplitude=0.11):
                   'proximal_limit': 100.,
                   'swc_filename': '../../morphologies/DH070313-.Edit.scaled.swc'}
     n = SimplifiedNeuron(parameters,with_axon=False,with_active=True)
+    #n = AThornyNeuron(parameters,with_axon=False,with_active=True)
+    #n = ThornyNeuron(parameters,with_axon=False,with_active=True)
     #n = SWCNeuron(parameters,with_axon=False,with_active=False)
     #n.save_properties()
+    h.topology()
     rec = make_voltage_recorders(n)
     stim = h.IClamp(n.soma[0](0.5))
     stim.delay = 200

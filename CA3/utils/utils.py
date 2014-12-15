@@ -1,12 +1,60 @@
 
+import sys
 from neuron import h
 import numpy as np
+import time
 
-__all__ = ['psth','generate_poisson_spike_times','make_voltage_recorders','run',
+__all__ = ['run_current_steps_protocol','psth','generate_poisson_spike_times','make_voltage_recorders','run',
            'distance','pick_section','filter','path_length','simplify_tree',
            'convert_morphology','compute_section_area','SWC_types']
 
 SWC_types = {'soma': 1, 'axon': 2, 'basal': 3, 'apical': 4}
+
+def timestamp():
+    return time.strftime('%b %d, %H:%M:%S ', time.localtime(time.time()))
+
+def run_current_steps_protocol(cell, amplitudes, ttran, tstep, tafter=500., temperature=36., max_step=10., V0=-70.):
+    h.load_file('stdrun.hoc')
+
+    print(timestamp() + '>> Inserting the stimulus...')
+    stim = h.IClamp(cell.soma[0](0.5))
+    stim.dur = tstep
+    stim.delay = ttran
+
+    print(timestamp() + '>> Setting up the recorders...')
+    rec = make_voltage_recorders(cell)
+    rec['spikes'] = h.Vector()
+    apc = h.APCount(cell.soma[0](0.5))
+    apc.record(rec['spikes'])
+
+    h.celsius = temperature
+    h.tstop = stim.delay + stim.dur + tafter
+    h.cvode_active(1)
+    h.cvode.atol(1e-6)
+    h.cvode.rtol(1e-6)
+    h.cvode.maxstep(max_step)
+
+    t = []
+    V = []
+    spike_times = []
+
+    for i,amp in enumerate(amplitudes):    
+        sys.stdout.write('\r' + timestamp() + '>> Trial [%02d/%02d] ' % (i+1,len(amplitudes)))
+        sys.stdout.flush()
+        stim.amp = amp
+        apc.n = 0
+        rec['t'].resize(0)
+        rec['vsoma'].resize(0)
+        rec['spikes'].resize(0)
+        h.t = 0
+        h.v_init = V0
+        h.run()
+        t.append(np.array(rec['t']))
+        V.append(np.array(rec['vsoma']))
+        spike_times.append(np.array(rec['spikes']))
+    sys.stdout.write('\n')
+
+    return np.array(t), np.array(V), np.array(spike_times)
 
 def psth(spks, binwidth, interval=None):
     if interval is None:
@@ -35,7 +83,7 @@ def make_voltage_recorders(n):
     rec['t'].record(h._ref_t)
     rec['vsoma'].record(n.soma[0](0.5)._ref_v)
     rec['vproximal'].record(n.proximal[0](0.5)._ref_v)
-    rec['vdistal'].record(n.distal[1](0.5)._ref_v)
+    rec['vdistal'].record(n.distal[0](0.5)._ref_v)
     rec['vbasal'].record(n.basal[0](0.5)._ref_v)
     return rec
 

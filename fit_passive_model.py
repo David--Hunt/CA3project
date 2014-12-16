@@ -93,7 +93,7 @@ def compute_detailed_neuron_voltage_deflection(filename, proximal_limit):
                   'proximal_limit': proximal_limit,
                   'swc_filename': filename}
     # create the neuron
-    neuron = CA3.cells.SWCNeuron(parameters, with_axon=False, with_active=False)
+    neuron = CA3.cells.SWCNeuron(parameters, with_axon=False, with_active=False, convert_to_3pt_soma=False)
     # set the upper and lower bounds of the lengths of functional compartments
     # using as a reference the corresponding lengths in the detailed model
     for var in variables:
@@ -159,7 +159,7 @@ def optimize():
     # parse the command-line arguments
     parser = arg.ArgumentParser(description='Fit a reduced morphology to a detailed one considering only passive properties')
     parser.add_argument('filename', type=str, action='store', help='Path of the file containing the morphology')
-    parser.add_argument('-N', '--population-size', default=700, type=int,
+    parser.add_argument('-N', '--population-size', default=512, type=int,
                         help='Population size for the genetic algorithm (default: 700)')
     parser.add_argument('-G', '--generation-number', default=200, type=int,
                         help='Number of generations for the genetic algorithm (default: 200)')

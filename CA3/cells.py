@@ -466,12 +466,12 @@ class ThornyNeuron (SimplifiedNeuron):
                 self.axon[i].connect(self.axon[i-1], 1, 0)
         
 class SWCNeuron (SimplifiedNeuron):
-    def __init__(self, parameters, with_axon=True, with_active=True, convert_to_3pt_soma=True):
+    def __init__(self, parameters, with_axon=True, with_active=True, convert_to_3pt_soma=False):
         if convert_to_3pt_soma:
             self.swc_filename = '.'.join(parameters['swc_filename'].split('.')[:-1]) + '_converted.swc'
             convert_morphology(parameters['swc_filename'], self.swc_filename)
         else:
-            self.swc_filename = swc_filename
+            self.swc_filename = parameters['swc_filename']
         parameters['swc_filename'] = os.path.abspath(self.swc_filename)
         parameters['convert_to_3pt_soma'] = convert_to_3pt_soma
         SimplifiedNeuron.__init__(self, parameters, with_axon, with_active)
@@ -498,8 +498,8 @@ class SWCNeuron (SimplifiedNeuron):
                 c_xyz = cPos.xyz
                 p_xyz = pPos.xyz
                 h.pt3dclear(sec=section)
-                h.pt3dadd(float(p_xyz[0]),float(p_xyz[1]),float(p_xyz[2]),float(pPos.radius),sec=section)
-                h.pt3dadd(float(c_xyz[0]),float(c_xyz[1]),float(c_xyz[2]),float(cPos.radius),sec=section)
+                h.pt3dadd(float(p_xyz[0]),float(p_xyz[1]),float(p_xyz[2]),2*float(pPos.radius),sec=section)
+                h.pt3dadd(float(c_xyz[0]),float(c_xyz[1]),float(c_xyz[2]),2*float(cPos.radius),sec=section)
             # assign it to the proper region
             swc_type = node.content['p3d'].type
             if swc_type == SWC_types['soma']:
@@ -624,13 +624,14 @@ def run_step(amplitude=0.11):
                   'basal': {'Ra': 500., 'El': -70., 'L': 300., 'diam': 5.},
                   'axon': {'Cm': 1., 'Ra': 50., 'El': -70., 'Rm': 10e3, 'L': 20., 'diam': 1.},
                   'proximal_limit': 100.,
-                  'swc_filename': '../../morphologies/DH070313-.Edit.scaled.swc'}
-    n = SimplifiedNeuron(parameters,with_axon=False,with_active=True)
+                  'swc_filename': '../../morphologies/DH070613-1-.Edit.scaled.swc'}
+    #n = SimplifiedNeuron(parameters,with_axon=False,with_active=True)
     #n = AThornyNeuron(parameters,with_axon=False,with_active=True)
     #n = ThornyNeuron(parameters,with_axon=False,with_active=True)
-    #n = SWCNeuron(parameters,with_axon=False,with_active=False)
+    n = SWCNeuron(parameters,with_axon=False,with_active=False,convert_to_3pt_soma=False)
     #n.save_properties()
-    h.topology()
+    #h.topology()
+    sys.exit(0)
     rec = make_voltage_recorders(n)
     stim = h.IClamp(n.soma[0](0.5))
     stim.delay = 200

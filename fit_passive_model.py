@@ -1,12 +1,13 @@
+#!/usr/bin/env python
 
-import sys
 import os
-import itertools as it
-import numpy as np
-from neuron import h
+import sys
 import CA3
+import numpy as np
+import argparse as arg
+import itertools as it
+from neuron import h
 from emoo import Emoo
-import pylab as p
 
 DEBUG = False
 
@@ -109,6 +110,8 @@ def compute_detailed_neuron_voltage_deflection(filename='../morphologies/DH07061
     return neuron,distances,voltages,basal,proximal,distal
 
 def voltage_deflection_error(pars):
+    if DEBUG:
+        import pylab as p
     d = np.round(np.sqrt(np.sum(detailed_neuron['cell'].soma_areas)/np.pi))
     parameters = {'scaling': 1,
                   'soma': {'Cm': 1., 'Ra': pars['Ra_soma'], 'El': -70., 'Rm': 15e3, 'L': d, 'diam': d},
@@ -123,10 +126,6 @@ def voltage_deflection_error(pars):
     distances,voltages,basal,proximal,distal = voltage_deflection(neuron)
 
     err = 0
-    #for d,v in zip(distances,voltages):
-    #    idx, = np.where((detailed_neuron['distances']>d-5) & (detailed_neuron['distances']<d+5))
-    #    err += (v - np.mean(detailed_neuron['voltages'][idx]))**2
-
     for region,region_name in zip((basal,proximal,distal),('basal','proximal','distal')):
         for d,v in zip(region['distances'],region['voltages']):
             idx, = np.where((detailed_neuron[region_name]['distances']>d-0.05) & (detailed_neuron[region_name]['distances']<d+0.05))
@@ -144,43 +143,64 @@ def voltage_deflection_error(pars):
     return err
 
 def func_to_optimize(parameters):
-    measures = {
-        'voltage_deflection': voltage_deflection_error(parameters)
-        }
+    measures = {}
+    for obj in objectives:
+        measures[obj] = getattr(sys.modules[__name__],obj + '_error')(parameters)
     return measures
 
 def check_population(population, columns, gen):
     print('Generation %03d.' % (gen+1))
     if gen == 0:
         CA3.utils.h5.save_h5_file(h5_filename, 'w', columns=columns)
-    CA3.utils.h5.save_h5_file(h5_filename,'a',generations={('%d'%(gen+1)): population})
+    CA3.utils.h5.save_h5_file(h5_filename,'a',generations={('%d'%gen): population})
 
-def main():
-    n,d,v,bas,prox,dist = compute_detailed_neuron_voltage_deflection()
+def optimize():
+    # parse the command-line arguments
+    parser = arg.ArgumentParser(description='Fit a reduced morphology to a detailed one considering only passive properties')
+    parser.add_argument('filename', type=str, action='store', help='Path of the file containing the morphology')
+    parser.add_argument('-N', '--population-size', default=700, type=int,
+                        help='Population size for the genetic algorithm (default: 700)')
+    parser.add_argument('-G', '--generation-number', default=200, type=int,
+                        help='Number of generations for the genetic algorithm (default: 200)')
+    parser.add_argument('--pm', default=0.1, type=float,
+                        help='Probability of mutation (default: 0.1)')
+    parser.add_argument('--etam-start', default=10., type=float,
+                        help='Initial value of the mutation parameter (default: 10)')
+    parser.add_argument('--etam-end', default=500., type=float,
+                        help='Final value of the mutation parameter (default: 500)')
+    parser.add_argument('--etac-start', default=5., type=float,
+                        help='Initial value of the crossover parameter (default: 5)')
+    parser.add_argument('--etac-end', default=50., type=float,
+                        help='Final value of the crossover parameter (default: 50)')
+    parser.add_argument('-o','--out-file', type=str, help='Output file name (default: same as morphology file)')
+
+    args = parser.parse_args(args=sys.argv[2:])
+
+    if args.filename is None:
+        print('You must provide the path of the morphology file.')
+        sys.exit(1)
+    
+    if not os.path.isfile(args.filename):
+        print('%s: no such file.' % args.filename)
+        sys.exit(1)
+
+    swc_filename = os.path.abspath(args.filename)
+    global h5_filename
+    if args.out_file is None:
+        h5_filename = CA3.utils.h5.make_output_filename(os.path.basename(swc_filename).rstrip('.swc'), '.h5')
+    else:
+        h5_filename = args.out_file
+
+    n,d,v,bas,prox,dist = compute_detailed_neuron_voltage_deflection(swc_filename)
     global detailed_neuron
     detailed_neuron = {'cell': n, 'distances': d, 'voltages': v, 'basal': bas, 'proximal': prox, 'distal': dist}
     
-    #err = voltage_deflection_error({'Ra_soma': 123, 'Ra_basal': 1513, 'Ra_proximal': 224, 'Ra_distal': 508,
-                                    'L_basal': 223, 'L_proximal': 437, 'L_distal': 253})
-    #sys.exit(0)
-
     # Initiate the Evolutionary Multiobjective Optimization
-    N = 10
-    emoo = Emoo(N=N, C=2*N, variables=variables, objectives=objectives)
-    # Parameters:
-    # N: size of population
-    # C: size of capacity 
+    emoo = Emoo(N=args.population_size, C=2*args.population_size, variables=variables, objectives=objectives)
 
-    n_gen = 5
-    pm = 0.1
-    eta_m_0 = 10.
-    eta_m_end = 500.
-    eta_c_0 = 5.
-    eta_c_end = 50.
-    finish_gen = 0
-    d_eta_m = (eta_m_end - eta_m_0) / (n_gen - finish_gen)
-    d_eta_c = (eta_c_end - eta_c_0) / (n_gen - finish_gen)
-    emoo.setup(eta_m_0, eta_c_0, pm, finish_gen, d_eta_m, d_eta_c)
+    d_etam = (args.etam_end - args.etam_start) / args.generation_number
+    d_etac = (args.etac_end - args.etac_start) / args.generation_number
+    emoo.setup(eta_m_0=args.etam_start, eta_c_0=args.etac_start, p_m=args.pm, finishgen=0, d_eta_m=d_etam, d_eta_c=d_etac)
     # Parameters:
     # eta_m_0, eta_c_0: defines the initial strength of the mutation and crossover parameter (large values mean weak effect)
     # p_m: probabily of mutation of a parameter (holds for each parameter independently)
@@ -188,12 +208,30 @@ def main():
     emoo.get_objectives_error = func_to_optimize
     emoo.checkpopulation = check_population
     
-    global h5_filename
-    h5_filename = 'evolution.h5'
-    emoo.evolution(generations=n_gen)
+    emoo.evolution(generations=args.generation_number)
 
     if emoo.master_mode:
-        population = emoo.getpopulation_unnormed() # get the unnormed population
+        CA3.utils.h5.save_h5_file(h5_filename, 'a', parameters={'etam_start': args.etam_start, 'etam_end': args.etam_end,
+                                                                'etac_start': args.etac_start, 'etac_end': args.etac_end,
+                                                                'p_m': args.pm},
+                                  objectives=objectives, variables=variables, swc_filename=swc_filename)
+
+def validate():
+    pass
+
+def help():
+    print('This script optimizes a reduced morphology to match a full one.')
+    print('')
+    print('Author: Daniele Linaro - danielelinaro@gmail.com')
+    print('  Date: December 2014')
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) == 1 or sys.argv[1] in ('-h','-H','--help'):
+        help()
+    elif sys.argv[1] == 'optimize':
+        optimize()
+    elif sys.argv[1] == 'test':
+        validate()
+    else:
+        print('Unknown working mode: enter "%s -h" for help.' % os.path.basename(sys.argv[0]))
+

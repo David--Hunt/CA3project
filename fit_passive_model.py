@@ -83,14 +83,14 @@ def voltage_deflection(neuron, amp=-0.5, dur=500, delay=100):
 
     return distances,voltages,basal,proximal,distal
 
-def compute_detailed_neuron_voltage_deflection(filename='../morphologies/DH070613-1-.Edit.scaled.swc'):
+def compute_detailed_neuron_voltage_deflection(filename, proximal_limit):
     # fixed parameters for the detailed neuron
     parameters = {'scaling': 1,
                   'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 15e3},
                   'proximal': {'Ra': 100., 'El': -70.},
                   'distal': {'Ra': 100., 'El': -70.},
                   'basal': {'Ra': 100., 'El': -70.},
-                  'proximal_limit': 400.,
+                  'proximal_limit': proximal_limit,
                   'swc_filename': filename}
     # create the neuron
     neuron = CA3.cells.SWCNeuron(parameters, with_axon=False, with_active=False)
@@ -150,9 +150,10 @@ def func_to_optimize(parameters):
 
 def check_population(population, columns, gen):
     print('Generation %03d.' % (gen+1))
-    if gen == 0:
-        CA3.utils.h5.save_h5_file(h5_filename, 'w', columns=columns)
-    CA3.utils.h5.save_h5_file(h5_filename,'a',generations={('%d'%gen): population})
+    if emoo.master_mode:
+        if gen == 0:
+            CA3.utils.h5.save_h5_file(h5_filename, 'w', columns=columns)
+        CA3.utils.h5.save_h5_file(h5_filename,'a',generations={('%d'%gen): population})
 
 def optimize():
     # parse the command-line arguments
@@ -172,6 +173,8 @@ def optimize():
                         help='Initial value of the crossover parameter (default: 5)')
     parser.add_argument('--etac-end', default=50., type=float,
                         help='Final value of the crossover parameter (default: 50)')
+    parser.add_argument('--proximal-limit', type=float,
+                        help='Limit of the proximal dendrite, in micrometers')
     parser.add_argument('-o','--out-file', type=str, help='Output file name (default: same as morphology file)')
 
     args = parser.parse_args(args=sys.argv[2:])
@@ -182,7 +185,7 @@ def optimize():
     
     if not os.path.isfile(args.filename):
         print('%s: no such file.' % args.filename)
-        sys.exit(1)
+        sys.exit(2)
 
     swc_filename = os.path.abspath(args.filename)
     global h5_filename
@@ -191,11 +194,20 @@ def optimize():
     else:
         h5_filename = args.out_file
 
-    n,d,v,bas,prox,dist = compute_detailed_neuron_voltage_deflection(swc_filename)
+    if args.proximal_limit is None:
+        print('You must provide the maximal length of the proximal apical region in the detailed morphology.')
+        sys.exit(3)
+
+    if args.proximal_limit < 0:
+        print('The maximal length of the proximal apical region must be non-negative.')
+        sys.exit(4)
+        
+    n,d,v,bas,prox,dist = compute_detailed_neuron_voltage_deflection(swc_filename, args.proximal_limit)
     global detailed_neuron
     detailed_neuron = {'cell': n, 'distances': d, 'voltages': v, 'basal': bas, 'proximal': prox, 'distal': dist}
     
     # Initiate the Evolutionary Multiobjective Optimization
+    global emoo
     emoo = Emoo(N=args.population_size, C=2*args.population_size, variables=variables, objectives=objectives)
 
     d_etam = (args.etam_end - args.etam_start) / args.generation_number
@@ -213,7 +225,7 @@ def optimize():
     if emoo.master_mode:
         CA3.utils.h5.save_h5_file(h5_filename, 'a', parameters={'etam_start': args.etam_start, 'etam_end': args.etam_end,
                                                                 'etac_start': args.etac_start, 'etac_end': args.etac_end,
-                                                                'p_m': args.pm},
+                                                                'p_m': args.pm}, proximal_limit=args.proximal_limit,
                                   objectives=objectives, variables=variables, swc_filename=swc_filename)
 
 def validate():

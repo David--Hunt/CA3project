@@ -11,18 +11,15 @@ from emoo import Emoo
 
 DEBUG = False
 
-# Define the variables and their lower and upper search bounds
+# the list of objectives
+objectives = ['voltage_deflection']
+
+# the variables and their lower and upper search bounds
 variables = [
     ['Ra_soma', 80., 200.],
     ['Ra_basal', 700., 2000.],
     ['Ra_proximal', 150., 300.],
-    ['Ra_distal', 500., 1200.],
-    ['L_basal', -50, 100],
-    ['L_proximal', -50, 100],
-    ['L_distal', -50, 100]]
-
-# Define the list of objectives (in this case, it is only one)
-objectives = ['voltage_deflection']
+    ['Ra_distal', 500., 1200.]]
 
 def voltage_deflection(neuron, amp=-0.5, dur=500, delay=100):
     stim = h.IClamp(neuron.soma[0](0.5))
@@ -94,18 +91,6 @@ def compute_detailed_neuron_voltage_deflection(filename, proximal_limit):
                   'swc_filename': filename}
     # create the neuron
     neuron = CA3.cells.SWCNeuron(parameters, with_axon=False, with_active=False, convert_to_3pt_soma=False)
-    # set the upper and lower bounds of the lengths of functional compartments
-    # using as a reference the corresponding lengths in the detailed model
-    for var in variables:
-        if var[0] == 'L_basal':
-            var[1] = np.round(var[1] + np.max(neuron.basal_distances))
-            var[2] += var[1]
-        elif var[0] == 'L_proximal':
-            var[1] = np.round(var[1] + np.max(neuron.proximal_distances))
-            var[2] += var[1]
-        elif var[0] == 'L_distal':
-            var[1] = np.round(var[1] + np.max(neuron.distal_distances) - np.max(neuron.proximal_distances))
-            var[2] += var[1]
     distances,voltages,basal,proximal,distal = voltage_deflection(neuron)
     return neuron,distances,voltages,basal,proximal,distal
 
@@ -115,9 +100,21 @@ def voltage_deflection_error(pars):
     d = np.round(np.sqrt(np.sum(detailed_neuron['cell'].soma_areas)/np.pi))
     parameters = {'scaling': 1,
                   'soma': {'Cm': 1., 'Ra': pars['Ra_soma'], 'El': -70., 'Rm': 15e3, 'L': d, 'diam': d},
-                  'proximal': {'Ra': pars['Ra_proximal'], 'El': -70., 'L': pars['L_proximal']},
-                  'distal': {'Ra': pars['Ra_distal'], 'El': -70., 'L': pars['L_distal']},
-                  'basal': {'Ra': pars['Ra_basal'], 'El': -70., 'L': pars['L_basal']}}
+                  'proximal': {'Ra': pars['Ra_proximal'], 'El': -70.},
+                  'distal': {'Ra': pars['Ra_distal'], 'El': -70.},
+                  'basal': {'Ra': pars['Ra_basal'], 'El': -70.}}
+    if 'L_basal' in pars:
+        parameters['basal']['L'] = pars['L_basal']
+    else:
+        parameters['basal']['L'] = np.max(detailed_neuron['cell'].basal_distances)
+    if 'L_proximal' in pars:
+        parameters['proximal']['L'] = pars['L_proximal']
+    else:
+        parameters['proximal']['L'] = np.max(detailed_neuron['cell'].proximal_distances)
+    if 'L_distal' in pars:
+        parameters['distal']['L'] = pars['L_distal']
+    else:
+        parameters['distal']['L'] = np.max(detailed_neuron['cell'].distal_distances)
     parameters['basal']['diam'] = np.sum(detailed_neuron['cell'].basal_areas) / (np.pi*parameters['basal']['L'])
     parameters['proximal']['diam'] = np.sum(detailed_neuron['cell'].proximal_areas) / (np.pi*parameters['proximal']['L'])
     parameters['distal']['diam'] = np.sum(detailed_neuron['cell'].distal_areas) / (np.pi*parameters['distal']['L'])
@@ -176,6 +173,7 @@ def optimize():
     parser.add_argument('--proximal-limit', type=float,
                         help='Limit of the proximal dendrite, in micrometers')
     parser.add_argument('-o','--out-file', type=str, help='Output file name (default: same as morphology file)')
+    parser.add_argument('--optimize-length', action='store_true', help='Optimize also the lengths of the functional compartments')
 
     args = parser.parse_args(args=sys.argv[2:])
 
@@ -206,7 +204,18 @@ def optimize():
     global detailed_neuron
     detailed_neuron = {'cell': n, 'distances': d, 'voltages': v, 'basal': bas, 'proximal': prox, 'distal': dist}
     
-    # Initiate the Evolutionary Multiobjective Optimization
+    if args.optimize_length:
+        # set the upper and lower bounds of the lengths of functional compartments
+        # using as a reference the corresponding lengths in the detailed model
+        global variables
+        d = np.round(np.max(neuron.basal_distances))
+        variables.append(['L_basal', d-50, d+50])
+        d = np.round(np.max(neuron.proximal_distances))
+        variables.append(['L_proximal', d-50, d+50])
+        d = np.round(np.max(neuron.distal_distances) - np.max(neuron.proximal_distances))
+        variables.append(['L_distal', d-50, d+50])
+
+    # initiate the Evolutionary Multiobjective Optimization
     global emoo
     emoo = Emoo(N=args.population_size, C=2*args.population_size, variables=variables, objectives=objectives)
 
@@ -229,7 +238,14 @@ def optimize():
                                   objectives=objectives, variables=variables, swc_filename=swc_filename)
 
 def validate():
-    pass
+    n,d,v,bas,prox,dist = compute_detailed_neuron_voltage_deflection('../morphologies/DH070613-1-.Edit.scaled.swc',200)
+    global detailed_neuron
+    detailed_neuron = {'cell': n, 'distances': d, 'voltages': v, 'basal': bas, 'proximal': prox, 'distal': dist}
+    global DEBUG
+    DEBUG = True
+    err = voltage_deflection_error({'Ra_soma': 112, 'Ra_basal': 1082, 'Ra_proximal': 274, 'Ra_distal': 581,
+                                    'L_basal': 230, 'L_proximal': 151, 'L_distal': 395})
+    print err
 
 def help():
     print('This script optimizes a reduced morphology to match a full one.')

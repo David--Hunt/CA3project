@@ -3,6 +3,9 @@
 *.pyc
 *.pyo
 *.h5
+*.aux
+*.log
+*.pdf
 logs
 misc
 x86_64

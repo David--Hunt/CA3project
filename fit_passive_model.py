@@ -94,7 +94,7 @@ def compute_detailed_neuron_voltage_deflection(filename, proximal_limit):
     distances,voltages,basal,proximal,distal = voltage_deflection(neuron)
     return neuron,distances,voltages,basal,proximal,distal
 
-def voltage_deflection_error(pars):
+def voltage_deflection_error(pars,additional_output=False):
     if DEBUG:
         import pylab as p
     d = np.round(np.sqrt(np.sum(detailed_neuron['cell'].soma_areas)/np.pi))
@@ -114,7 +114,7 @@ def voltage_deflection_error(pars):
     if 'L_distal' in pars:
         parameters['distal']['L'] = pars['L_distal']
     else:
-        parameters['distal']['L'] = np.max(detailed_neuron['cell'].distal_distances)
+        parameters['distal']['L'] = np.max(detailed_neuron['cell'].distal_distances) - np.max(detailed_neuron['cell'].proximal_distances)
     parameters['basal']['diam'] = np.sum(detailed_neuron['cell'].basal_areas) / (np.pi*parameters['basal']['L'])
     parameters['proximal']['diam'] = np.sum(detailed_neuron['cell'].proximal_areas) / (np.pi*parameters['proximal']['L'])
     parameters['distal']['diam'] = np.sum(detailed_neuron['cell'].distal_areas) / (np.pi*parameters['distal']['L'])
@@ -137,7 +137,10 @@ def voltage_deflection_error(pars):
         p.plot(distances,voltages,'ro')
         p.show()
 
-    return err
+    if not additional_output:
+        return err
+    else:
+        return err,distances,voltages
 
 def func_to_optimize(parameters):
     measures = {}
@@ -237,15 +240,92 @@ def optimize():
                                                                 'p_m': args.pm}, proximal_limit=args.proximal_limit,
                                   objectives=objectives, variables=variables, swc_filename=swc_filename)
 
-def validate():
-    n,d,v,bas,prox,dist = compute_detailed_neuron_voltage_deflection('../morphologies/DH070613-1-.Edit.scaled.swc',200)
+def display():
+    parser = arg.ArgumentParser(description='Fit a reduced morphology to a detailed one considering only passive properties')
+    parser.add_argument('filename', type=str, action='store', help='Path of the file containing the morphology')
+    args = parser.parse_args(args=sys.argv[2:])
+    if not os.path.isfile(args.filename):
+        print('%s: no such file.' % args.filename)
+        sys.exit(1)
+    # read the data
+    data = CA3.utils.h5.load_h5_file(args.filename)
+    # simulate the detailed model
+    swc_filename = '../morphologies/' + os.path.basename(data['swc_filename'])
+    n,d,v,bas,prox,dist = compute_detailed_neuron_voltage_deflection(swc_filename,data['proximal_limit'])
     global detailed_neuron
     detailed_neuron = {'cell': n, 'distances': d, 'voltages': v, 'basal': bas, 'proximal': prox, 'distal': dist}
-    global DEBUG
-    DEBUG = True
-    err = voltage_deflection_error({'Ra_soma': 112, 'Ra_basal': 1082, 'Ra_proximal': 274, 'Ra_distal': 581,
-                                    'L_basal': 230, 'L_proximal': 151, 'L_distal': 395})
-    print err
+    # get the optimal parameters
+    ngen = len(data['generations'])
+    last = str(ngen-1)
+    Ra_soma = data['generations'][last][0,data['columns']['Ra_soma']]
+    Ra_basal = data['generations'][last][0,data['columns']['Ra_basal']]
+    Ra_proximal = data['generations'][last][0,data['columns']['Ra_proximal']]
+    Ra_distal = data['generations'][last][0,data['columns']['Ra_distal']]
+    L_soma = np.round(np.sqrt(np.sum(detailed_neuron['cell'].soma_areas)/np.pi))
+    if 'L_basal' in data['columns']:
+        L_basal = data['generations'][last][0,data['columns']['L_basal']]
+    else:
+        L_basal = np.max(detailed_neuron['cell'].basal_distances)
+    if 'L_proximal' in data['columns']:
+        L_proximal = data['generations'][last][0,data['columns']['L_proximal']]
+    else:
+        L_proximal = np.max(detailed_neuron['cell'].proximal_distances)
+    if 'L_distal' in data['columns']:
+        L_distal = data['generations'][last][0,data['columns']['L_distal']]
+    else:
+        L_distal = np.max(detailed_neuron['cell'].distal_distances) - np.max(detailed_neuron['cell'].proximal_distances)
+    diam_basal = np.sum(detailed_neuron['cell'].basal_areas) / (np.pi*L_basal)
+    diam_proximal = np.sum(detailed_neuron['cell'].proximal_areas) / (np.pi*L_proximal)
+    diam_distal = np.sum(detailed_neuron['cell'].distal_areas) / (np.pi*L_distal)
+    _,distances,voltages = voltage_deflection_error({'Ra_soma': Ra_soma, 'Ra_basal': Ra_basal,
+                                                     'Ra_proximal': Ra_proximal, 'Ra_distal': Ra_distal,
+                                                     'L_basal': L_basal, 'L_proximal': L_proximal,
+                                                     'L_distal': L_distal}, additional_output=True)
+
+    base_dir = '/tmp'
+    tex_file = os.path.basename(args.filename)[:-3] + '.tex'
+    import pylab as p
+    import matplotlib
+    matplotlib.rc('font',size=11)
+    p.figure(figsize=(6,4),dpi=300)
+    p.plot(detailed_neuron['distances'],detailed_neuron['voltages'],'k.',label='Detailed model')
+    p.plot(distances,voltages,'ro',label='Reduced model')
+    p.xlabel('Distance to soma (um)')
+    p.ylabel('Voltage (mV)')
+    p.grid('off')
+    p.legend(loc='lower right')
+    p.savefig(base_dir + '/voltage_deflection.pdf')
+    with open(base_dir + '/' + tex_file, 'w') as fid:
+        fid.write('\\documentclass[11pt]{scrartcl}\n')
+        fid.write('\\usepackage{graphicx}\n')
+        fid.write('\\usepackage[squaren]{SIunits}\n')
+        fid.write('\\begin{document}\n')
+        fid.write('\\section*{Morphology reduction for %s}\n' % os.path.basename(data['swc_filename']))
+        fid.write('\\begin{table}[h!!]\n')
+        fid.write('\\centering\n')
+        fid.write('\\begin{tabular}{|c|ccc|}\n')
+        fid.write('\\hline\n')
+        fid.write('Functional section & Length & Diameter & Axial resistance \\\\\n')
+        fid.write('\\hline\n')
+        fid.write('Soma & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
+                  (L_soma,L_soma,Ra_soma))
+        fid.write('Basal dendrites & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
+                  tuple(map(round,(L_basal,diam_basal,Ra_basal))))
+        fid.write('Proximal apical dendrites & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
+                  tuple(map(round,(L_proximal,diam_proximal,Ra_proximal))))
+        fid.write('Distal apical dendrites & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
+                  tuple(map(round,(L_distal,diam_distal,Ra_distal))))
+        fid.write('\\hline\n')
+        fid.write('\\end{tabular}\n')
+        fid.write('\\caption{Reduced model parameters}\n')
+        fid.write('\\end{table}\n')
+        fid.write('\\begin{figure}[htb]\n')
+        fid.write('\\centering\n')
+        fid.write('\\includegraphics{%s/voltage_deflection.pdf}\n' % base_dir)
+        fid.write('\\caption{Voltage deflection error}\n')
+        fid.write('\\end{figure}\n')
+        fid.write('\\end{document}\n')
+    os.system('pdflatex ' + base_dir + '/' + tex_file)
 
 def help():
     print('This script optimizes a reduced morphology to match a full one.')
@@ -258,8 +338,8 @@ if __name__ == '__main__':
         help()
     elif sys.argv[1] == 'optimize':
         optimize()
-    elif sys.argv[1] == 'test':
-        validate()
+    elif sys.argv[1] == 'display':
+        display()
     else:
         print('Unknown working mode: enter "%s -h" for help.' % os.path.basename(sys.argv[0]))
 

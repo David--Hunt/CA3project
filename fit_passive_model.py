@@ -16,10 +16,10 @@ objectives = ['voltage_deflection','impedance','phase']
 
 # the variables and their lower and upper search bounds
 variables = [
-    ['Ra_soma', 80., 200.],
-    ['Ra_basal', 700., 2000.],
-    ['Ra_proximal', 150., 300.],
-    ['Ra_distal', 500., 1200.]]
+    ['Ra_soma', 80., 400.],       # 80, 200
+    ['Ra_basal', 700., 2000.],    # 700, 2000
+    ['Ra_proximal', 100., 300.],  # 150, 300
+    ['Ra_distal', 100., 1200.]]   # 500, 1200
 
 def make_detailed_neuron(filename, proximal_limit):
     # fixed parameters for the detailed neuron
@@ -189,8 +189,9 @@ def objectives_error(parameters):
     return measures
 
 def check_population(population, columns, gen):
-    print('Generation %03d.' % (gen+1))
     if emoo.master_mode:
+        print('Generation %03d.' % (gen+1))
+        sys.stdout.flush()
         if gen == 0:
             CA3.utils.h5.save_h5_file(h5_filename, 'w', columns=columns)
         CA3.utils.h5.save_h5_file(h5_filename,'a',generations={('%d'%gen): population})
@@ -253,13 +254,14 @@ def optimize():
     if args.optimize_length:
         # set the upper and lower bounds of the lengths of functional compartments
         # using as a reference the corresponding lengths in the detailed model
+        bound = 50
         global variables
-        d = np.round(np.max(neuron.basal_distances))
-        variables.append(['L_basal', d-50, d+50])
-        d = np.round(np.max(neuron.proximal_distances))
-        variables.append(['L_proximal', d-50, d+50])
-        d = np.round(np.max(neuron.distal_distances) - np.max(neuron.proximal_distances))
-        variables.append(['L_distal', d-50, d+50])
+        d = np.round(np.max(n.basal_distances))
+        variables.append(['L_basal', d-bound, d+bound])
+        d = np.round(np.max(n.proximal_distances))
+        variables.append(['L_proximal', d-bound, d+bound])
+        d = np.round(np.max(n.distal_distances) - np.max(n.proximal_distances))
+        variables.append(['L_distal', d-bound, d+bound])
 
     # initiate the Evolutionary Multiobjective Optimization
     global emoo
@@ -270,7 +272,7 @@ def optimize():
     emoo.setup(eta_m_0=args.etam_start, eta_c_0=args.etac_start, p_m=args.pm, finishgen=0, d_eta_m=d_etam, d_eta_c=d_etac)
     # Parameters:
     # eta_m_0, eta_c_0: defines the initial strength of the mutation and crossover parameter (large values mean weak effect)
-    # p_m: probabily of mutation of a parameter (holds for each parameter independently)
+    # p_m: probability of mutation of a parameter (holds for each parameter independently)
 
     emoo.get_objectives_error = objectives_error
     emoo.checkpopulation = check_population

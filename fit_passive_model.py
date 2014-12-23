@@ -329,22 +329,22 @@ def display():
     for i,obj in enumerate(data['objectives']):
         err[:,i] = data['generations'][last][:,data['columns'][obj]]
         norm_err[:,i] = (err[:,i] - min(err[:,i])) / (max(err[:,i]) - min(err[:,i]))
-    idx = np.argmin(np.sum(norm_err**2,axis=1))
-    Ra_soma = data['generations'][last][idx,data['columns']['Ra_soma']]
-    Ra_basal = data['generations'][last][idx,data['columns']['Ra_basal']]
-    Ra_proximal = data['generations'][last][idx,data['columns']['Ra_proximal']]
-    Ra_distal = data['generations'][last][idx,data['columns']['Ra_distal']]
+    best = np.argmin(np.sum(norm_err[:,:2]**2,axis=1))
+    Ra_soma = data['generations'][last][best,data['columns']['Ra_soma']]
+    Ra_basal = data['generations'][last][best,data['columns']['Ra_basal']]
+    Ra_proximal = data['generations'][last][best,data['columns']['Ra_proximal']]
+    Ra_distal = data['generations'][last][best,data['columns']['Ra_distal']]
     L_soma = np.round(np.sqrt(np.sum(detailed['neuron'].soma_areas)/np.pi))
     if 'L_basal' in data['columns']:
-        L_basal = data['generations'][last][idx,data['columns']['L_basal']]
+        L_basal = data['generations'][last][best,data['columns']['L_basal']]
     else:
         L_basal = np.max(detailed['neuron'].basal_distances)
     if 'L_proximal' in data['columns']:
-        L_proximal = data['generations'][last][idx,data['columns']['L_proximal']]
+        L_proximal = data['generations'][last][best,data['columns']['L_proximal']]
     else:
         L_proximal = np.max(detailed['neuron'].proximal_distances)
     if 'L_distal' in data['columns']:
-        L_distal = data['generations'][last][idx,data['columns']['L_distal']]
+        L_distal = data['generations'][last][best,data['columns']['L_distal']]
     else:
         L_distal = np.max(detailed['neuron'].distal_distances) - np.max(detailed['neuron'].proximal_distances)
     diam_basal = np.sum(detailed['neuron'].basal_areas) / (np.pi*L_basal)
@@ -360,8 +360,17 @@ def display():
     base_dir = '/tmp'
     tex_file = os.path.basename(args.filename)[:-3] + '.tex'
     import pylab as p
-    p.figure(figsize=(6,4),dpi=300)
-    p.plot(detailed['distances'],detailed['voltages'],'k.',label='Detailed model')
+    p.figure(figsize=(12,5),dpi=300)
+    for i in range(len(objectives)):
+        p.subplot(1,3,i)
+        p.plot(norm_err[:,i],norm_err[:,(i+1)%3],'ko')
+        p.plot(norm_err[best,i],norm_err[best,(i+1)%3],'rs')
+        p.axis([-0.05,1,-0.05,1])
+        p.xlabel('Normalized %s error' % objectives[i].replace('_',' '))
+        p.ylabel('Normalized %s error' % objectives[(i+1)%3].replace('_',' '))
+    p.savefig(base_dir + '/errors.pdf')
+    p.figure(figsize=(6,5),dpi=300)
+    p.plot(detailed['distances'][:10:-1],detailed['voltages'][:10:-1],'k.',label='Detailed model')
     p.plot(simplified['distances'],simplified['voltages'],'ro',label='Reduced model')
     p.xlabel('Distance to soma (um)')
     p.ylabel('Voltage (mV)')
@@ -409,13 +418,22 @@ def display():
         fid.write('\n')
         fid.write('\\begin{figure}[htb]\n')
         fid.write('\\centering\n')
-        fid.write('\\includegraphics{%s/voltage_deflection.pdf}\n' % base_dir)
+        fid.write('\\includegraphics[width=\\textwidth]{%s/errors.pdf}\n' % base_dir)
+        fid.write('\\caption{Trade-offs between objectives at the last generation: ')
+        fid.write('each black dot indicates a solution, while the red dot is the chosen solution ')
+        fid.write('(i.e., the one that minimizes the sum of the square normalized voltage deflection ')
+        fid.write('and impedance error, \textbf{without} considering the phase error).}\n')
+        fid.write('\\end{figure}\n')
+        fid.write('\n')
+        fid.write('\\begin{figure}[htb]\n')
+        fid.write('\\centering\n')
+        fid.write('\\includegraphics[width=\\textwidth]{%s/voltage_deflection.pdf}\n' % base_dir)
         fid.write('\\caption{Voltage deflection error}\n')
         fid.write('\\end{figure}\n')
         fid.write('\n')
         fid.write('\\begin{figure}[htb]\n')
         fid.write('\\centering\n')
-        fid.write('\\includegraphics{%s/impedance.pdf}\n' % base_dir)
+        fid.write('\\includegraphics[width=\\textwidth]{%s/impedance.pdf}\n' % base_dir)
         fid.write('\\caption{Impedance and phase error}\n')
         fid.write('\\end{figure}\n')
         fid.write('\\end{document}\n')

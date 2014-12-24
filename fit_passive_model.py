@@ -10,6 +10,7 @@ from neuron import h
 from emoo import Emoo
 
 DEBUG = False
+ReducedNeuron = CA3.cells.SimplifiedNeuron
 
 # the list of objectives
 objectives = ['voltage_deflection','impedance','phase']
@@ -54,7 +55,11 @@ def make_simplified_neuron(pars, detailed_neuron):
     parameters['basal']['diam'] = np.sum(detailed_neuron.basal_areas) / (np.pi*parameters['basal']['L'])
     parameters['proximal']['diam'] = np.sum(detailed_neuron.proximal_areas) / (np.pi*parameters['proximal']['L'])
     parameters['distal']['diam'] = np.sum(detailed_neuron.distal_areas) / (np.pi*parameters['distal']['L'])
-    return CA3.cells.SimplifiedNeuron(parameters, with_axon=False, with_active=False)
+    # divide the diameter by the number of sections in each functional area
+    parameters['basal']['diam'] /= ReducedNeuron.n_basal_sections()
+    parameters['proximal']['diam'] /= ReducedNeuron.n_proximal_sections() # n_proximal_sections() always returns 1, for now anyway...
+    parameters['distal']['diam'] /= ReducedNeuron.n_distal_sections()
+    return ReducedNeuron(parameters, with_axon=False, with_active=False)
 
 def voltage_deflection(neuron, amp=-0.5, dur=500, delay=100):
     stim = h.IClamp(neuron.soma[0](0.5))
@@ -234,6 +239,8 @@ def optimize():
                         help='Initial value of the crossover parameter (default: 5)')
     parser.add_argument('--etac-end', default=50., type=float,
                         help='Final value of the crossover parameter (default: 50)')
+    parser.add_argument('--model-type', default='simplified', type=str,
+                        help='Specify model type (default is "simplified", other options are "athorny" or "thorny")')
     parser.add_argument('--proximal-limit', type=float,
                         help='Limit of the proximal dendrite, in micrometers')
     parser.add_argument('-o','--out-file', type=str, help='Output file name (default: same as morphology file)')
@@ -264,6 +271,15 @@ def optimize():
         print('The maximal length of the proximal apical region must be non-negative.')
         sys.exit(4)
         
+    global ReducedNeuron
+    if args.model_type.lower() == 'thorny':
+        ReducedNeuron = CA3.cells.ThornyNeuron
+    elif args.model_type.lower() == 'athorny':
+        ReducedNeuron = CA3.cells.AThornyNeuron
+    elif args.model_type.lower() != 'simplified':
+        print('The model type must be one of "simplified", "thorny" or "athorny".')
+        sys.exit(5)
+
     n = make_detailed_neuron(swc_filename, args.proximal_limit)
     d,v,bas,prox,dist = voltage_deflection(n)
     R,phi = impedance(n)

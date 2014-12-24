@@ -10,7 +10,7 @@ h.load_file('stdlib.hoc')
 
 DEBUG = False
 
-__all__ = ['Neuron','SimplifiedNeuron','SWCNeuron','SimplifiedNeuron3D']
+__all__ = ['Neuron','SimplifiedNeuron','ThornyNeuron','AThornyNeuron','SWCNeuron','SimplifiedNeuron3D']
 
 class Neuron:
     def __init__(self, parameters, with_axon=True, with_active=True):
@@ -198,13 +198,33 @@ class SimplifiedNeuron (Neuron):
     def __init__(self, parameters, with_axon=True, with_active=True):
         Neuron.__init__(self, parameters, with_axon, with_active)
 
+    @classmethod
+    def n_somatic_sections(cls):
+        return 1
+
+    @classmethod
+    def n_basal_sections(cls):
+        return 1
+
+    @classmethod
+    def n_proximal_sections(cls):
+        return 1
+
+    @classmethod
+    def n_distal_sections(cls):
+        return 1
+
+    @classmethod
+    def n_axonal_sections(cls):
+        return 5
+
     def make_sections(self):
-        self.soma = [h.Section(name='soma')]
-        self.basal = [h.Section(name='basal')]
-        self.proximal = [h.Section(name='proximal')]
-        self.distal = [h.Section(name='distal')]
+        self.soma = [h.Section(name='soma') for i in range(self.n_somatic_sections())]
+        self.basal = [h.Section(name='basal') for i in range(self.n_basal_sections())]
+        self.proximal = [h.Section(name='proximal') for i in range(self.n_proximal_sections())]
+        self.distal = [h.Section(name='distal') for i in range(self.n_distal_sections())]
         if self.has_axon:
-            self.axon = [h.Section(name='axon-%d' % i) for i in range(5)]
+            self.axon = [h.Section(name='axon-%d' % i) for i in range(self.n_axonal_sections())]
 
     def setup_membrane_capacitance(self):
         Neuron.setup_membrane_capacitance(self)
@@ -419,13 +439,13 @@ class AThornyNeuron (SimplifiedNeuron):
     def __init__(self, parameters, with_axon=True, with_active=True):
         SimplifiedNeuron.__init__(self, parameters, with_axon, with_active)
 
-    def make_sections(self):
-        self.soma = [h.Section(name='soma')]
-        self.basal = [h.Section(name='basal-%d' % i) for i in range(2)]
-        self.proximal = [h.Section(name='proximal')]
-        self.distal = [h.Section(name='distal-%d' % i) for i in range(2)]
-        if self.has_axon:
-            self.axon = [h.Section(name='axon-%d' % i) for i in range(5)]
+    @classmethod
+    def n_basal_sections(cls):
+        return 2
+
+    @classmethod
+    def n_distal_sections(cls):
+        return 2
 
     def connect_sections(self):
         self.proximal[0].connect(self.soma[0], 1, 0)
@@ -442,13 +462,13 @@ class ThornyNeuron (SimplifiedNeuron):
     def __init__(self, parameters, with_axon=True, with_active=True):
         SimplifiedNeuron.__init__(self, parameters, with_axon, with_active)
 
-    def make_sections(self):
-        self.soma = [h.Section(name='soma')]
-        self.basal = [h.Section(name='basal-%d' % i) for i in range(4)]
-        self.proximal = [h.Section(name='proximal')]
-        self.distal = [h.Section(name='distal-%d' % i) for i in range(6)]
-        if self.has_axon:
-            self.axon = [h.Section(name='axon-%d' % i) for i in range(5)]
+    @classmethod
+    def n_basal_sections(cls):
+        return 4
+
+    @classmethod
+    def n_distal_sections(cls):
+        return 6
 
     def connect_sections(self):
         self.proximal[0].connect(self.soma[0], 1, 0)
@@ -625,13 +645,12 @@ def run_step(amplitude=0.11):
                   'axon': {'Cm': 1., 'Ra': 50., 'El': -70., 'Rm': 10e3, 'L': 20., 'diam': 1.},
                   'proximal_limit': 100.,
                   'swc_filename': '../../morphologies/DH070613-1-.Edit.scaled.swc'}
-    #n = SimplifiedNeuron(parameters,with_axon=False,with_active=True)
+    n = SimplifiedNeuron(parameters,with_axon=False,with_active=True)
     #n = AThornyNeuron(parameters,with_axon=False,with_active=True)
     #n = ThornyNeuron(parameters,with_axon=False,with_active=True)
-    n = SWCNeuron(parameters,with_axon=False,with_active=False,convert_to_3pt_soma=False)
+    #n = SWCNeuron(parameters,with_axon=False,with_active=False,convert_to_3pt_soma=False)
     #n.save_properties()
-    #h.topology()
-    sys.exit(0)
+    h.topology()
     rec = make_voltage_recorders(n)
     stim = h.IClamp(n.soma[0](0.5))
     stim.delay = 200

@@ -70,6 +70,7 @@ def voltage_deflection(neuron, amp=-0.5, dur=500, delay=100):
     rec_t = h.Vector()
     rec_t.record(h._ref_t)
     recorders = []
+    soma_idx = []
     basal_idx = []
     proximal_idx = []
     distal_idx = []
@@ -82,7 +83,9 @@ def voltage_deflection(neuron, amp=-0.5, dur=500, delay=100):
             rec.record(seg._ref_v)
             recorders.append(rec)
             dst = h.distance(seg.x, sec=sec)
-            if sec in neuron.basal:
+            if sec in neuron.soma:
+                soma_idx.append(cnt)
+            elif sec in neuron.basal:
                 basal_idx.append(cnt)
                 dst *= -1
             elif sec in neuron.proximal:
@@ -92,6 +95,7 @@ def voltage_deflection(neuron, amp=-0.5, dur=500, delay=100):
             distances.append(dst)
             cnt += 1
 
+    soma_idx = np.array(soma_idx)
     basal_idx = np.array(basal_idx)
     proximal_idx = np.array(proximal_idx)
     distal_idx = np.array(distal_idx)
@@ -106,6 +110,8 @@ def voltage_deflection(neuron, amp=-0.5, dur=500, delay=100):
     distances = np.array(distances)
     voltages = np.array(voltages)
     
+    soma = {'distances': distances[soma_idx], 'voltages': voltages[soma_idx]}
+
     if len(basal_idx) > 1:
         m = np.min(distances[basal_idx])
         M = np.max(distances[basal_idx])
@@ -129,14 +135,14 @@ def voltage_deflection(neuron, amp=-0.5, dur=500, delay=100):
 
     stim.amp = 0
     del stim
-    return distances,voltages,basal,proximal,distal
+    return distances,voltages,soma,basal,proximal,distal
 
 def voltage_deflection_error(pars):
     if DEBUG:
         import pylab as p    
     neuron = make_simplified_neuron(pars, detailed_neuron['cell'])
-    distances,voltages,basal,proximal,distal = voltage_deflection(neuron)
-    err = 0
+    distances,voltages,soma,basal,proximal,distal = voltage_deflection(neuron)
+    err = (soma['voltages'][0]-np.mean(detailed_neuron['soma']['voltages']))**2
     for region,region_name in zip((basal,proximal,distal),('basal','proximal','distal')):
         for d,v in zip(region['distances'],region['voltages']):
             idx, = np.where((detailed_neuron[region_name]['distances']>d-0.05) & (detailed_neuron[region_name]['distances']<d+0.05))
@@ -191,25 +197,37 @@ def impedance_error(pars):
     phi_err = np.sum((phi-detailed_neuron['phase'])**2)
     return R_err,phi_err
 
+def length_error(pars):
+    # This is ``almost'' correct, in the sense that distances in SWCNeuron are computed from the center of the sections
+    # and thus do not reflect the exact length of each section. However, since sections in SWCNeuron are almost always
+    # made up of one segment, this is a very good approximation of the true length of the morphology
+    ref = np.array([np.max(detailed_neuron['cell'].basal_distances),np.max(detailed_neuron['cell'].proximal_distances), \
+                        np.max(detailed_neuron['cell'].distal_distances)-np.max(detailed_neuron['cell'].proximal_distances)])
+    return np.sum((np.array([pars['L_basal'],pars['L_proximal'],pars['L_distal']]) - ref)**2)
+
 def objectives_error(parameters):
     measures = {}
     measures['voltage_deflection'] = voltage_deflection_error(parameters)
     R_err,phi_err = impedance_error(parameters)
     measures['impedance'] = R_err
     measures['phase'] = phi_err
+    if 'length' in objectives:
+        measures['length'] = length_error(parameters)
     return measures
 
 def quick_test(filename, proximal_limit):
     n = make_detailed_neuron(filename, proximal_limit)
-    d,v,bas,prox,dist = voltage_deflection(n)
+    d,v,som,bas,prox,dist = voltage_deflection(n)
     global detailed_neuron
-    detailed_neuron = {'cell': n, 'distances': d, 'voltages': v, 'basal': bas,
-                       'proximal': prox, 'distal': dist}
+    detailed_neuron = {'cell': n, 'distances': d, 'voltages': v, 'soma': som,
+                       'basal': bas, 'proximal': prox, 'distal': dist}
     #R,phi = impedance(n)
     #detailed_neuron['impedance'] = R
     #detailed_neuron['phase'] = phi
-    parameters = {'Ra_soma': 233.813, 'Ra_basal': 707.457, 'Ra_proximal': 190.942, 'Ra_distal': 108.639,
-                  'L_basal': 178.464, 'L_proximal': 50.8825, 'L_distal': 312.616}
+    parameters = {'Ra_soma': 293.925, 'Ra_basal': 1505, 'Ra_proximal': 293, 'Ra_distal': 367,
+                  'L_basal': 155, 'L_proximal': 136, 'L_distal': 319}
+    global ReducedNeuron
+    ReducedNeuron = CA3.cells.AThornyNeuron
     err = voltage_deflection_error(parameters)
     print err
 
@@ -281,10 +299,10 @@ def optimize():
         sys.exit(5)
 
     n = make_detailed_neuron(swc_filename, args.proximal_limit)
-    d,v,bas,prox,dist = voltage_deflection(n)
+    d,v,som,bas,prox,dist = voltage_deflection(n)
     R,phi = impedance(n)
     global detailed_neuron
-    detailed_neuron = {'cell': n, 'distances': d, 'voltages': v, 'basal': bas,
+    detailed_neuron = {'cell': n, 'distances': d, 'voltages': v, 'soma': som, 'basal': bas,
                        'proximal': prox, 'distal': dist, 'impedance': R, 'phase': phi}
     
     if args.optimize_length:
@@ -298,6 +316,7 @@ def optimize():
         variables.append(['L_proximal', (1-fraction)*d, (1+fraction)*d])
         d = np.round(np.max(n.distal_distances) - np.max(n.proximal_distances))
         variables.append(['L_distal', (1-fraction)*d, (1+fraction)*d])
+        objectives.append('length')
 
     # initiate the Evolutionary Multiobjective Optimization
     global emoo
@@ -319,7 +338,8 @@ def optimize():
         CA3.utils.h5.save_h5_file(h5_filename, 'a', parameters={'etam_start': args.etam_start, 'etam_end': args.etam_end,
                                                                 'etac_start': args.etac_start, 'etac_end': args.etac_end,
                                                                 'p_m': args.pm}, proximal_limit=args.proximal_limit,
-                                  objectives=objectives, variables=variables, swc_filename=swc_filename)
+                                  objectives=objectives, variables=variables, swc_filename=swc_filename,
+                                  model_type=args.model_type.lower())
 
 def display():
     parser = arg.ArgumentParser(description='Fit a reduced morphology to a detailed one considering only passive properties')
@@ -330,11 +350,25 @@ def display():
         sys.exit(1)
     # read the data
     data = CA3.utils.h5.load_h5_file(args.filename)
+    # figure out which reduced neuron model was used
+    try:
+        global ReducedNeuron
+        if data['model_type'] == 'thorny':
+            ReducedNeuron = CA3.cells.ThornyNeuron
+        elif data['model_type'] == 'athorny':
+            ReducedNeuron = CA3.cells.AThornyNeuron
+        elif data['model_type'] == 'simplified':
+            ReducedNeuron = CA3.cells.SimplifiedNeuron
+    except:
+        # different neuron models were added only after a while, and
+        # therefore some H5 files lack this information
+        print('No "model_type" in %s: using SimplifiedNeuron.' % args.filename)
     # simulate the detailed model
     swc_filename = '../morphologies/' + os.path.basename(data['swc_filename'])
     detailed = {}
     detailed['neuron'] = make_detailed_neuron(swc_filename,data['proximal_limit'])
-    detailed['distances'],detailed['voltages'],_,_,_ = voltage_deflection(detailed['neuron'])
+    detailed['distances'],detailed['voltages'],detailed['soma'],detailed['basal'], \
+        detailed['proximal'],detailed['distal'] = voltage_deflection(detailed['neuron'])
     frequencies = np.array([0.1,0.2,0.5,1,2,5,10,20,50,100,200,500,1000])
     detailed['impedance'],detailed['phase'] = impedance(detailed['neuron'],frequencies=frequencies)
     # get the optimal parameters
@@ -345,7 +379,7 @@ def display():
     for i,obj in enumerate(data['objectives']):
         err[:,i] = data['generations'][last][:,data['columns'][obj]]
         norm_err[:,i] = (err[:,i] - min(err[:,i])) / (max(err[:,i]) - min(err[:,i]))
-    best = np.argmin(np.sum(norm_err[:,:2]**2,axis=1))
+    best = np.argmin(np.sum(norm_err**2,axis=1))
     Ra_soma = data['generations'][last][best,data['columns']['Ra_soma']]
     Ra_basal = data['generations'][last][best,data['columns']['Ra_basal']]
     Ra_proximal = data['generations'][last][best,data['columns']['Ra_proximal']]
@@ -371,7 +405,8 @@ def display():
                                                    'Ra_proximal': Ra_proximal, 'Ra_distal': Ra_distal,
                                                    'L_basal': L_basal, 'L_proximal': L_proximal,
                                                    'L_distal': L_distal}, detailed['neuron'])
-    simplified['distances'],simplified['voltages'],_,_,_ = voltage_deflection(simplified['neuron'])
+    simplified['distances'],simplified['voltages'],simplified['soma'],simplified['basal'],\
+        simplified['proximal'],simplified['distal'] = voltage_deflection(simplified['neuron'])
     simplified['impedance'],simplified['phase'] = impedance(simplified['neuron'],frequencies=frequencies)
     base_dir = '/tmp'
     tex_file = os.path.basename(args.filename)[:-3] + '.tex'
@@ -438,7 +473,7 @@ def display():
         fid.write('\\caption{Trade-offs between objectives at the last generation: ')
         fid.write('each black dot indicates a solution, while the red dot is the chosen solution ')
         fid.write('(i.e., the one that minimizes the sum of the square normalized voltage deflection ')
-        fid.write('and impedance error, \textbf{without} considering the phase error).}\n')
+        fid.write('and impedance error, \\textbf{without} considering the phase error).}\n')
         fid.write('\\end{figure}\n')
         fid.write('\n')
         fid.write('\\begin{figure}[htb]\n')

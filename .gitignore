@@ -6,6 +6,8 @@
 *.aux
 *.log
 *.pdf
+*.ipynb
+.ipynb_checkpoints
 logs
 misc
 x86_64

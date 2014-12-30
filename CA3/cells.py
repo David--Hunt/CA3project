@@ -41,6 +41,7 @@ class Neuron:
         self.make_sections()
         self.setup_membrane_capacitance()
         self.setup_axial_resistance()
+        self.adjust_dimensions()
         self.setup_topology()
         self.compute_nseg()
         self.connect_sections()
@@ -67,6 +68,9 @@ class Neuron:
             sec.Ra = self.parameters['proximal']['Ra']
         for sec in self.distal:
             sec.Ra = self.parameters['distal']['Ra']
+
+    def adjust_dimensions(self):
+        pass
 
     def setup_topology(self):
         raise NotImplementedError()
@@ -237,6 +241,23 @@ class SimplifiedNeuron (Neuron):
         if self.has_axon:
             for sec in self.axon:
                 sec.Ra = self.parameters['axon']['Ra']
+
+    def adjust_dimensions(self):
+        if 'area' in self.parameters['soma']:
+            self.parameters['soma']['diam'] = np.sqrt(self.parameters['soma']['area']/np.pi)
+            self.parameters['soma']['L'] = self.parameters['soma']['diam'] / self.n_somatic_sections()
+        if not 'diam' in self.parameters['basal']:
+            self.parameters['basal']['diam'] = self.parameters['basal']['area'] / \
+            (self.n_basal_sections()*np.pi*self.parameters['basal']['L'])
+        if not 'diam' in self.parameters['proximal']:
+            self.parameters['proximal']['diam'] = self.parameters['proximal']['area'] / \
+            (self.n_proximal_sections()*np.pi*self.parameters['proximal']['L'])
+        if not 'diam' in self.parameters['distal']:
+            self.parameters['distal']['diam'] = self.parameters['distal']['area'] / \
+            (self.n_distal_sections()*np.pi*self.parameters['distal']['L'])
+        if self.has_axon and not 'diam' in self.parameters['axon']:
+            self.parameters['axon']['diam'] = self.parameters['axon']['area'] / \
+            (self.n_axonal_sections()*np.pi*self.parameters['axon']['L'])
 
     def setup_topology(self):
         self.soma[0].L = self.parameters['soma']['L']
@@ -470,6 +491,12 @@ class ThornyNeuron (SimplifiedNeuron):
     def n_distal_sections(cls):
         return 6
 
+    def adjust_dimensions(self):
+        SimplifiedNeuron.adjust_dimensions(self)
+        if 'area' in self.parameters['distal']:
+            self.parameters['distal']['L'] /= 2
+            self.parameters['distal']['diam'] *= 2
+
     def connect_sections(self):
         self.proximal[0].connect(self.soma[0], 1, 0)
         self.distal[0].connect(self.proximal[0], 1, 0)
@@ -532,6 +559,9 @@ class SWCNeuron (SimplifiedNeuron):
             elif swc_type == SWC_types['apical']:
                 self.apical.append(section)
                 
+    def adjust_dimensions(self):
+        pass
+
     def setup_topology(self):
         pass
 
@@ -636,7 +666,7 @@ class SimplifiedNeuron3D (SimplifiedNeuron):
             h.pt3dadd(0, 0, -20-(i-2)*20, 1, sec=self.axon[i])
             h.pt3dadd(0, 0, -20-(i-1)*20, 1, sec=self.axon[i])
 
-def run_step(amplitude=0.11):
+def run_step(amplitude=-0.1):
     parameters = {'scaling': 0.5,
                   'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 10e3, 'L': 20., 'diam': 20.},
                   'proximal': {'Ra': 500., 'El': -70., 'L': 500., 'diam': 5.},
@@ -645,9 +675,17 @@ def run_step(amplitude=0.11):
                   'axon': {'Cm': 1., 'Ra': 50., 'El': -70., 'Rm': 10e3, 'L': 20., 'diam': 1.},
                   'proximal_limit': 100.,
                   'swc_filename': '../../morphologies/DH070613-1-.Edit.scaled.swc'}
-    n = SimplifiedNeuron(parameters,with_axon=False,with_active=True)
-    #n = AThornyNeuron(parameters,with_axon=False,with_active=True)
-    #n = ThornyNeuron(parameters,with_axon=False,with_active=True)
+    parameters = {'scaling': 0.5,
+                  'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 10e3, 'L': 20., 'diam': 20., 'area': 1500},
+                  'proximal': {'Ra': 500., 'El': -70., 'L': 500., 'diam': 5.},
+                  'distal': {'Ra': 500., 'El': -70., 'L': 200., 'area': 1500.},
+                  'basal': {'Ra': 500., 'El': -70., 'L': 300., 'diam': 5.},
+                  'axon': {'Cm': 1., 'Ra': 50., 'El': -70., 'Rm': 10e3, 'L': 20., 'diam': 1.},
+                  'proximal_limit': 100.,
+                  'swc_filename': '../../morphologies/DH070613-1-.Edit.scaled.swc'}
+    #n = SimplifiedNeuron(parameters,with_axon=False,with_active=False)
+    #n = AThornyNeuron(parameters,with_axon=False,with_active=False)
+    n = ThornyNeuron(parameters,with_axon=False,with_active=True)
     #n = SWCNeuron(parameters,with_axon=False,with_active=False,convert_to_3pt_soma=False)
     #n.save_properties()
     h.topology()

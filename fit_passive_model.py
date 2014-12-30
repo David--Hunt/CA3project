@@ -34,12 +34,11 @@ def make_detailed_neuron(filename, proximal_limit):
     return CA3.cells.SWCNeuron(parameters, with_axon=False, with_active=False, convert_to_3pt_soma=False)
     
 def make_simplified_neuron(pars, detailed_neuron):
-    d = np.round(np.sqrt(np.sum(detailed_neuron.soma_areas)/np.pi))
     parameters = {'scaling': 1,
-                  'soma': {'Cm': 1., 'Ra': pars['Ra_soma'], 'El': -70., 'Rm': 15e3, 'L': d, 'diam': d},
-                  'proximal': {'Ra': pars['Ra_proximal'], 'El': -70.},
-                  'distal': {'Ra': pars['Ra_distal'], 'El': -70.},
-                  'basal': {'Ra': pars['Ra_basal'], 'El': -70.}}
+                  'soma': {'Cm': 1., 'Ra': pars['Ra_soma'], 'El': -70., 'Rm': 15e3, 'area': np.sum(detailed_neuron.soma_areas)},
+                  'proximal': {'Ra': pars['Ra_proximal'], 'El': -70., 'area': np.sum(detailed_neuron.proximal_areas)},
+                  'distal': {'Ra': pars['Ra_distal'], 'El': -70., 'area': np.sum(detailed_neuron.distal_areas)},
+                  'basal': {'Ra': pars['Ra_basal'], 'El': -70., 'area': np.sum(detailed_neuron.basal_areas)}}
     if 'L_basal' in pars:
         parameters['basal']['L'] = pars['L_basal']
     else:
@@ -52,13 +51,6 @@ def make_simplified_neuron(pars, detailed_neuron):
         parameters['distal']['L'] = pars['L_distal']
     else:
         parameters['distal']['L'] = np.max(detailed_neuron.distal_distances) - np.max(detailed_neuron.proximal_distances)
-    parameters['basal']['diam'] = np.sum(detailed_neuron.basal_areas) / (np.pi*parameters['basal']['L'])
-    parameters['proximal']['diam'] = np.sum(detailed_neuron.proximal_areas) / (np.pi*parameters['proximal']['L'])
-    parameters['distal']['diam'] = np.sum(detailed_neuron.distal_areas) / (np.pi*parameters['distal']['L'])
-    # divide the diameter by the number of sections in each functional area
-    parameters['basal']['diam'] /= ReducedNeuron.n_basal_sections()
-    parameters['proximal']['diam'] /= ReducedNeuron.n_proximal_sections() # n_proximal_sections() always returns 1, for now anyway...
-    parameters['distal']['diam'] /= ReducedNeuron.n_distal_sections()
     return ReducedNeuron(parameters, with_axon=False, with_active=False)
 
 def voltage_deflection(neuron, amp=-0.5, dur=500, delay=100):
@@ -379,7 +371,7 @@ def display():
     for i,obj in enumerate(data['objectives']):
         err[:,i] = data['generations'][last][:,data['columns'][obj]]
         norm_err[:,i] = (err[:,i] - min(err[:,i])) / (max(err[:,i]) - min(err[:,i]))
-    best = np.argmin(np.sum(norm_err**2,axis=1))
+    best = np.argmin(np.sum(norm_err[:,:2]**2,axis=1))
     Ra_soma = data['generations'][last][best,data['columns']['Ra_soma']]
     Ra_basal = data['generations'][last][best,data['columns']['Ra_basal']]
     Ra_proximal = data['generations'][last][best,data['columns']['Ra_proximal']]

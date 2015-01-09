@@ -8,12 +8,15 @@ import argparse as arg
 import itertools as it
 from neuron import h
 from emoo import Emoo
+from emoo import mpi4py_loaded
+if mpi4py_loaded:
+    from mpi4py import MPI
 
 DEBUG = False
 ReducedNeuron = CA3.cells.SimplifiedNeuron
 
 # the list of objectives
-objectives = ['voltage_deflection','impedance','phase']
+objectives = ['voltage_deflection']
 
 # the variables and their lower and upper search bounds
 variables = [
@@ -200,9 +203,10 @@ def length_error(pars):
 def objectives_error(parameters):
     measures = {}
     measures['voltage_deflection'] = voltage_deflection_error(parameters)
-    R_err,phi_err = impedance_error(parameters)
-    measures['impedance'] = R_err
-    measures['phase'] = phi_err
+    if 'impedance' in objectives:
+        R_err,phi_err = impedance_error(parameters)
+        measures['impedance'] = R_err
+        measures['phase'] = phi_err
     if 'length' in objectives:
         measures['length'] = length_error(parameters)
     return measures
@@ -224,6 +228,8 @@ def quick_test(filename, proximal_limit):
     print err
 
 def check_population(population, columns, gen):
+    if mpi4py_loaded:
+        print('Processor name: %s' % MPI.Get_processor_name())
     if emoo.master_mode:
         print('Generation %03d.' % (gen+1))
         sys.stdout.flush()
@@ -255,7 +261,7 @@ def optimize():
                         help='Limit of the proximal dendrite, in micrometers')
     parser.add_argument('-o','--out-file', type=str, help='Output file name (default: same as morphology file)')
     parser.add_argument('--optimize-length', action='store_true', help='Optimize also the lengths of the functional compartments')
-
+    parser.add_argument('--optimize-impedance', action='store_true', help='Optimize the somatic impedance of the cell')
     args = parser.parse_args(args=sys.argv[2:])
 
     if args.filename is None:
@@ -292,11 +298,18 @@ def optimize():
 
     n = make_detailed_neuron(swc_filename, args.proximal_limit)
     d,v,som,bas,prox,dist = voltage_deflection(n)
-    R,phi = impedance(n)
+
     global detailed_neuron
     detailed_neuron = {'cell': n, 'distances': d, 'voltages': v, 'soma': som, 'basal': bas,
                        'proximal': prox, 'distal': dist, 'impedance': R, 'phase': phi}
-    
+
+    if args.optimize_impedance:
+        objectives.append('impedance')
+        objectives.append('phase')
+        R,phi = impedance(n)
+        detailed_neuron['impedance'] = R
+        detailed_neuron['phase'] = phi
+
     if args.optimize_length:
         # set the upper and lower bounds of the lengths of functional compartments
         # using as a reference the corresponding lengths in the detailed model
@@ -308,7 +321,7 @@ def optimize():
         variables.append(['L_proximal', (1-fraction)*d, (1+fraction)*d])
         d = np.round(np.max(n.distal_distances) - np.max(n.proximal_distances))
         variables.append(['L_distal', (1-fraction)*d, (1+fraction)*d])
-        objectives.append('length')
+        #objectives.append('length')
 
     # initiate the Evolutionary Multiobjective Optimization
     global emoo
@@ -346,15 +359,19 @@ def display():
     try:
         global ReducedNeuron
         if data['model_type'] == 'thorny':
+            model_type = 'Thorny'
             ReducedNeuron = CA3.cells.ThornyNeuron
         elif data['model_type'] == 'athorny':
             ReducedNeuron = CA3.cells.AThornyNeuron
+            model_type = 'A-thorny'
         elif data['model_type'] == 'simplified':
             ReducedNeuron = CA3.cells.SimplifiedNeuron
+            model_type = 'Simplified'
     except:
         # different neuron models were added only after a while, and
         # therefore some H5 files lack this information
         print('No "model_type" in %s: using SimplifiedNeuron.' % args.filename)
+        model_type = 'Simplified'
     # simulate the detailed model
     swc_filename = '../morphologies/' + os.path.basename(data['swc_filename'])
     detailed = {}
@@ -403,16 +420,26 @@ def display():
     base_dir = '/tmp'
     tex_file = os.path.basename(args.filename)[:-3] + '.tex'
     import pylab as p
-    p.figure(figsize=(12,5),dpi=300)
-    for i in range(len(objectives)):
-        p.subplot(1,3,i)
-        p.plot(norm_err[:,i],norm_err[:,(i+1)%3],'ko')
-        p.plot(norm_err[best,i],norm_err[best,(i+1)%3],'rs')
-        p.axis([-0.05,1,-0.05,1])
-        p.xlabel('Normalized %s error' % objectives[i].replace('_',' '))
-        p.ylabel('Normalized %s error' % objectives[(i+1)%3].replace('_',' '))
+    n = len(data['objectives'])
+    if n == 3:
+        r = 1
+        c = 3
+    elif n == 4:
+        r = 2
+        c = 3
+    p.figure(figsize=(12,5*r),dpi=300)
+    subp = 1
+    for i in range(n):
+        for j in range(i+1,n):
+            p.subplot(r,c,subp)
+            p.plot(norm_err[:,i],norm_err[:,j],'ko')
+            p.plot(norm_err[best,i],norm_err[best,j],'rs')
+            p.axis([-0.05,1,-0.05,1])
+            p.xlabel('Normalized %s error' % data['objectives'][i].replace('_',' '))
+            p.ylabel('Normalized %s error' % data['objectives'][j].replace('_',' '))
+            subp += 1
     p.savefig(base_dir + '/errors.pdf')
-    p.figure(figsize=(6,5),dpi=300)
+    p.figure(figsize=(6,4),dpi=300)
     p.plot(detailed['distances'][:10:-1],detailed['voltages'][:10:-1],'k.',label='Detailed model')
     p.plot(simplified['distances'],simplified['voltages'],'ro',label='Reduced model')
     p.xlabel('Distance to soma (um)')
@@ -420,7 +447,7 @@ def display():
     p.grid('off')
     p.legend(loc='lower right')
     p.savefig(base_dir + '/voltage_deflection.pdf')
-    p.figure(figsize=(6,5),dpi=300)
+    p.figure(figsize=(6,4),dpi=300)
     ax = p.subplot(2,1,1)
     p.semilogx(frequencies,detailed['impedance'],'k')
     p.semilogx(frequencies,simplified['impedance'],'r')
@@ -439,26 +466,61 @@ def display():
         fid.write('\\usepackage{graphicx}\n')
         fid.write('\\usepackage[squaren]{SIunits}\n')
         fid.write('\\begin{document}\n')
-        fid.write('\\section*{Morphology reduction for %s}\n' % os.path.basename(data['swc_filename']))
+        fid.write('\\section*{Morphology reduction summary}\n')
+        fid.write('\n\\noindent ')
+        fid.write('Filename: %s.\n' % os.path.abspath(args.filename).replace('_','\_'))
+        fid.write('\n\\noindent ')
+        fid.write('Morphology file: %s.\n' % os.path.basename(data['swc_filename']))
+        fid.write('\n\\noindent ')
+        fid.write('Proximal dendrites limit: %g\\,\\micro\\meter.\n' % data['proximal_limit'])
+        fid.write('\n\\noindent ')
+        fid.write('Model type: %s.\n' % model_type)
+        fid.write('\n\\noindent ')
+        fid.write('Objectives:')
+        for obj in data['objectives']:
+            fid.write(' ' + obj.replace('_',' '))
+            if obj != data['objectives'][-1]:
+                fid.write(',')
+        fid.write('.\n')
+        fid.write('\n\\noindent ')
+        fid.write('Optimization variables:')
+        for var in data['variables']:
+            fid.write(' ' + var[0].replace('_',' '))
+            if var[0] != data['variables'][-1][0]:
+                fid.write(',')
+        fid.write('.\n')
+        fid.write('\n\\noindent ')
+        fid.write('Number of generations: %s.\n' % len(data['generations']))
+        fid.write('\n\\noindent ')
+        fid.write('Number of organisms: %s.\n' % len(data['generations']['0']))
+        fid.write('\n\\noindent ')
+        fid.write('Optimization parameters: $\\eta_c^0=%g$, $\\eta_c^{\mathrm{end}}=%g$, $\\eta_m^0=%g$, $\\eta_m^{\mathrm{end}}=%g$, $p_m=%g$.\n' % 
+                  (data['parameters']['etac_start'],data['parameters']['etac_end'],
+                   data['parameters']['etam_start'],data['parameters']['etam_end'],data['parameters']['p_m']))
+        fid.write('\\subsection*{Parameters of one good solution}')
         fid.write('\\begin{table}[h!!]\n')
         fid.write('\\centering\n')
-        fid.write('\\begin{tabular}{|c|ccc|}\n')
+        fid.write('\\begin{tabular}{|l|ccc|}\n')
         fid.write('\\hline\n')
-        fid.write('Functional section & Length & Diameter & Axial resistance \\\\\n')
+        fid.write('\\textbf{Functional section} & \\textbf{Length} & \\textbf{Diameter} & \\textbf{Axial resistance} \\\\\n')
         fid.write('\\hline\n')
         fid.write('Soma & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
                   (L_soma,L_soma,Ra_soma))
-        fid.write('Basal dendrites & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
-                  tuple(map(round,(L_basal,diam_basal,Ra_basal))))
-        fid.write('Proximal apical dendrites & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
-                  tuple(map(round,(L_proximal,diam_proximal,Ra_proximal))))
-        fid.write('Distal apical dendrites & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
-                  tuple(map(round,(L_distal,diam_distal,Ra_distal))))
+        n = ReducedNeuron.n_basal_sections()
+        fid.write('Basal dendrites (%d) & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
+                  (n,round(L_basal),round(diam_basal/n),round(Ra_basal)))
+        n = ReducedNeuron.n_proximal_sections()
+        fid.write('Proximal apical dendrites (%d) & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
+                  (n,round(L_proximal),round(diam_proximal/n),round(Ra_proximal)))
+        n = ReducedNeuron.n_distal_sections()
+        fid.write('Distal apical dendrites (%d) & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
+                  (n,round(L_distal),round(diam_distal/n),round(Ra_distal)))
         fid.write('\\hline\n')
         fid.write('\\end{tabular}\n')
-        fid.write('\\caption{Reduced model parameters}\n')
+        #fid.write('\\caption{Reduced model parameters.}\n')
         fid.write('\\end{table}\n')
         fid.write('\n')
+        fid.write('\\subsection*{Errors}')
         fid.write('\\begin{figure}[htb]\n')
         fid.write('\\centering\n')
         fid.write('\\includegraphics[width=\\textwidth]{%s/errors.pdf}\n' % base_dir)

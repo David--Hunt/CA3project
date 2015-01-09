@@ -6,11 +6,15 @@ import CA3
 import numpy as np
 import argparse as arg
 import itertools as it
+import time
 from neuron import h
 from emoo import Emoo
 from emoo import mpi4py_loaded
 if mpi4py_loaded:
     from mpi4py import MPI
+    processor_name = MPI.Get_processor_name()
+
+timestamp = lambda : time.strftime('%b %d, %H:%M:%S', time.localtime(time.time()))
 
 DEBUG = False
 ReducedNeuron = CA3.cells.SimplifiedNeuron
@@ -201,6 +205,8 @@ def length_error(pars):
     return np.sum((np.array([pars['L_basal'],pars['L_proximal'],pars['L_distal']]) - ref)**2)
 
 def objectives_error(parameters):
+    if mpi4py_loaded:
+        print('%s >>  STARTED objectives_error @ %s' % (processor_name,timestamp()))
     measures = {}
     measures['voltage_deflection'] = voltage_deflection_error(parameters)
     if 'impedance' in objectives:
@@ -209,6 +215,8 @@ def objectives_error(parameters):
         measures['phase'] = phi_err
     if 'length' in objectives:
         measures['length'] = length_error(parameters)
+    if mpi4py_loaded:
+        print('%s << FINISHED objectives_error @ %s' % (processor_name,timestamp()))
     return measures
 
 def quick_test(filename, proximal_limit):
@@ -229,7 +237,7 @@ def quick_test(filename, proximal_limit):
 
 def check_population(population, columns, gen):
     if mpi4py_loaded:
-        print('Processor name: %s' % MPI.Get_processor_name())
+        print('Processor name: %s' % processor_name)
     if emoo.master_mode:
         print('Generation %03d.' % (gen+1))
         sys.stdout.flush()

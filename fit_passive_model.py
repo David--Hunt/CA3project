@@ -352,7 +352,9 @@ def optimize():
                                                                 'etac_start': args.etac_start, 'etac_end': args.etac_end,
                                                                 'p_m': args.pm}, proximal_limit=args.proximal_limit,
                                   objectives=objectives, variables=variables, swc_filename=swc_filename,
-                                  model_type=args.model_type.lower())
+                                  model_type=args.model_type.lower(),
+                                  areas={'soma': np.sum(detailed_neuron.soma_areas), 'basal': np.sum(detailed_neuron.basal_areas),
+                                         'proximal': np.sum(detailed_neuron.proximal_areas), 'distal': np.sum(detailed_neuron.distal_areas)})
 
 def display():
     parser = arg.ArgumentParser(description='Fit a reduced morphology to a detailed one considering only passive properties')

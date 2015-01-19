@@ -205,8 +205,12 @@ def length_error(pars):
     return np.sum((np.array([pars['L_basal'],pars['L_proximal'],pars['L_distal']]) - ref)**2)
 
 def objectives_error(parameters):
+    try:
+        objectives_error.ncalls += 1
+    except:
+        objectives_error.__dict__['ncalls'] = 1
     if mpi4py_loaded:
-        print('%s >>  STARTED objectives_error @ %s' % (processor_name,timestamp()))
+        print('%s >>  STARTED objectives_error %d @ %s' % (processor_name,objectives_error.ncalls,timestamp()))
     measures = {}
     measures['voltage_deflection'] = voltage_deflection_error(parameters)
     if 'impedance' in objectives:
@@ -216,7 +220,7 @@ def objectives_error(parameters):
     if 'length' in objectives:
         measures['length'] = length_error(parameters)
     if mpi4py_loaded:
-        print('%s << FINISHED objectives_error @ %s' % (processor_name,timestamp()))
+        print('%s << FINISHED objectives_error %d @ %s' % (processor_name,objectives_error.ncalls,timestamp()))
     return measures
 
 def quick_test(filename, proximal_limit):
@@ -309,7 +313,7 @@ def optimize():
 
     global detailed_neuron
     detailed_neuron = {'cell': n, 'distances': d, 'voltages': v, 'soma': som, 'basal': bas,
-                       'proximal': prox, 'distal': dist, 'impedance': R, 'phase': phi}
+                       'proximal': prox, 'distal': dist}
 
     if args.optimize_impedance:
         objectives.append('impedance')
@@ -353,8 +357,10 @@ def optimize():
                                                                 'p_m': args.pm}, proximal_limit=args.proximal_limit,
                                   objectives=objectives, variables=variables, swc_filename=swc_filename,
                                   model_type=args.model_type.lower(),
-                                  areas={'soma': np.sum(detailed_neuron.soma_areas), 'basal': np.sum(detailed_neuron.basal_areas),
-                                         'proximal': np.sum(detailed_neuron.proximal_areas), 'distal': np.sum(detailed_neuron.distal_areas)})
+                                  areas={'soma': np.sum(detailed_neuron['cell'].soma_areas), \
+                                         'basal': np.sum(detailed_neuron['cell'].basal_areas), \
+                                         'proximal': np.sum(detailed_neuron['cell'].proximal_areas), \
+                                         'distal': np.sum(detailed_neuron['cell'].distal_areas)})
 
 def display():
     parser = arg.ArgumentParser(description='Fit a reduced morphology to a detailed one considering only passive properties')

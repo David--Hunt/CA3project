@@ -64,6 +64,9 @@ class Neuron:
             sec.cm = self.parameters['scaling'] * self.parameters['soma']['Cm']
         for sec in self.distal:
             sec.cm = self.parameters['scaling'] * self.parameters['soma']['Cm']
+        if self.has_axon:
+            for sec in self.axon:
+                sec.cm = self.parameters['axon']['Cm']
 
     def setup_axial_resistance(self):
         for sec in self.soma:
@@ -74,6 +77,9 @@ class Neuron:
             sec.Ra = self.parameters['proximal']['Ra']
         for sec in self.distal:
             sec.Ra = self.parameters['distal']['Ra']
+        if self.has_axon:
+            for sec in self.axon:
+                sec.Ra = self.parameters['axon']['Ra']
 
     def adjust_dimensions(self):
         pass
@@ -163,6 +169,10 @@ class Neuron:
         for sec in self.distal:
             sec.e_pas = self.parameters['distal']['El']
             sec.g_pas = self.parameters['scaling']/self.parameters['soma']['Rm']
+        if self.has_axon:
+            for sec in self.axon:
+                sec.e_pas = self.parameters['axon']['El']
+                sec.g_pas = 1./self.parameters['soma']['Rm']
 
     def get_soma(self):
         return self.__soma
@@ -246,18 +256,6 @@ class SimplifiedNeuron (Neuron):
         if self.has_axon:
             self.axon = [h.Section(name='hillock'), h.Section(name='AIS'), h.Section(name='axon')]
 
-    def setup_membrane_capacitance(self):
-        Neuron.setup_membrane_capacitance(self)
-        if self.has_axon:
-            for sec in self.axon:
-                sec.cm = self.parameters['axon']['Cm']
-
-    def setup_axial_resistance(self):
-        Neuron.setup_axial_resistance(self)
-        if self.has_axon:
-            for sec in self.axon:
-                sec.Ra = self.parameters['axon']['Ra']
-
     def adjust_dimensions(self):
         if 'area' in self.parameters['soma']:
             self.parameters['soma']['diam'] = np.sqrt(self.parameters['soma']['area']/np.pi)
@@ -302,13 +300,6 @@ class SimplifiedNeuron (Neuron):
             for i in range(1,len(self.axon)):
                 self.axon[i].connect(self.axon[i-1], 1, 0)
         
-    def insert_passive_mech(self):
-        Neuron.insert_passive_mech(self)
-        if self.has_axon:
-            for sec in self.axon:
-                sec.e_pas = self.parameters['axon']['El']
-                sec.g_pas = 1./self.parameters['axon']['Rm']
-
     def insert_active_mech(self):
         self.insert_fast_Na_and_delayed_rectifier_K()
         self.insert_persistent_Na()

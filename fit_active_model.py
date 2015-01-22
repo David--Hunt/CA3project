@@ -24,31 +24,58 @@ objectives = ['current_steps']
 
 # the variables and their lower and upper search bounds
 variables = [
-    ['Cm', 0.5, 2.],
-    ['Rm', 1e3, 50e3],
-    ['El', -80., -50.],
-    ['scaling', 0.2, 3.]]
+    ['Cm', 0.6, 3.],                       # [uF/cm2] membrane capacitance
+    ['Rm', 10e3, 30e3],                    # [Ohm cm2] membrane resistance
+    ['El', -85., -50.],                    # [mV] reversal potential of leak conductance
+    ['scaling', 0.5, 2.],                  # [1] scaling of dendritic capacitance and membrane resistance
+    ['nat_gbar_soma', 0., 500.],           # [pS/um2]
+    ['nat_gbar_hillock', 0., 20000.],      # [pS/um2]
+    ['nat_gbar_ais', 0., 20000.],          # [pS/um2]
+    ['nat_half_dist', 0., 500.],           # [um]
+    ['nat_lambda', 1., 500.],              # [um]
+    ['nat_dend_scaling', 0., 2.],          # [1]
+    ['kdr_gbar', 0., 100.],                # [pS/um2]
+    ['kdr_dend_scaling', 0., 2.],          # [1]
+    ['nap_gbar', 0., 5.],                  # [pS/um2] in the paper, 0 < gbar < 4.1
+    ['km_gbar', 0., 2.],                   # [pS/um2]
+    ['kahp_gbar', 0., 500.],               # [pS/um2]
+    ['kd_gbar', 0., 0.01],                 # [pS/um2]
+    ['kap_gbar', 0., 100.],                # [pS/um2]
+    ['ih_gbar_soma', 0., 0.1],             # [pS/um2]
+    ['ih_dend_scaling', 0., 10.],          # [1]
+    ['ih_half_dist', 0., 500.],            # [um]
+    ['ih_lambda', 1., 500.]]               # [um]
 
 # the neuron parameters that have been obtained by the previous
 # optimization of the passive properties
-neuron_pars = {'area': {'soma': None, 'proximal': None, 'distal': None, 'basal': None},
-               'L': {'proximal': None, 'distal': None, 'basal': None},
-               'Ra': {'soma': None, 'proximal': None, 'distal': None, 'basal': None}}
+neuron_pars = {'soma': {'Ra': None, 'area': None},
+               'proximal': {'Ra': None, 'area': None, 'L': None},
+               'distal': {'Ra': None, 'area': None, 'L': None},
+               'basal': {'Ra': None, 'area': None, 'L': None}}
 
 # the electrophysiological data used in the optimization
 ephys_data = None
 
-def make_simplified_neuron(pars):
-    parameters = {'scaling': pars['scaling'],
-                  'soma': {'area': pars['area']['soma'], 'Cm': pars['Cm'],
-                           'Ra': pars['Ra']['soma'], 'El': pars['El'], 'Rm': pars['Rm']},
-                  'proximal': {'area': pars['area']['proximal'], 'L': pars['L']['proximal'], 'Ra': pars['Ra']['proximal'],
-                               'El': pars['El'], 'area': pars['area']['proximal']},
-                  'distal': {'area': pars['area']['distal'], 'L': pars['L']['distal'], 'Ra': pars['Ra']['distal'],
-                             'El': pars['El'], 'area': pars['area']['distal']},
-                  'basal': {'area': pars['area']['basal'], 'L': pars['L']['basal'], 'Ra': pars['Ra']['basal'],
-                            'El': pars['El'], 'area': pars['area']['basal']}}
-    return ReducedNeuron(parameters, with_axon=False, with_active=False)
+def make_simplified_neuron(parameters):
+    pars = neuron_pars.copy()
+    for k,v in parameters.iteritems():
+        if k == 'scaling':
+            pars[k] = v
+        elif k == 'El':
+            for lbl in 'soma','proximal','distal','basal':
+                pars[lbl][k] = v
+        elif k in ('Cm','Rm'):
+            pars['soma'][k] = v
+        else:
+            key = k.split('_')[0]
+            value = '_'.join(k.split('_')[1:])
+            try:
+                pars[key][value] = v
+            except:
+                pars[key] = {value: v}
+    # the passive properties of the axon are the same as the soma
+    pars['axon'] = pars['soma'].copy()
+    return ReducedNeuron(pars, with_axon=True, with_active=True)
 
 def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100, V0=-70):
     stim = h.IClamp(neuron.soma[0](0.5))
@@ -75,10 +102,7 @@ def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100,
     return T,V
 
 def current_steps_error(parameters):
-    pars = neuron_pars.copy()
-    for k,v in parameters.iteritems():
-        pars[k] = v
-    neuron = make_simplified_neuron(pars)
+    neuron = make_simplified_neuron(parameters)
     t,V = current_steps(neuron, ephys_data['hyperpol_I'], ephys_data['dt'], ephys_data['dur'], \
                             ephys_data['tbefore'], ephys_data['tafter'], parameters['El'])
     #import pylab as p
@@ -129,13 +153,7 @@ def optimize():
                         help='Initial value of the crossover parameter (default: 5)')
     parser.add_argument('--etac-end', default=50., type=float,
                         help='Final value of the crossover parameter (default: 50)')
-    #parser.add_argument('--model-type', default='simplified', type=str,
-    #                    help='Specify model type (default is "simplified", other options are "athorny" or "thorny")')
-    #parser.add_argument('--proximal-limit', type=float,
-    #                    help='Limit of the proximal dendrite, in micrometers')
     parser.add_argument('-o','--out-file', type=str, help='Output file name (default: same as morphology file)')
-    parser.add_argument('--optimize-length', action='store_true', help='Optimize also the lengths of the functional compartments')
-    #parser.add_argument('--optimize-impedance', action='store_true', help='Optimize the somatic impedance of the cell')
     parser.add_argument('-d','--data-file', type=str, help='Data file for fitting')
     args = parser.parse_args(args=sys.argv[2:])
 
@@ -176,10 +194,10 @@ def optimize():
 
     # fill in the fixed parameters
     for lbl in 'soma','basal','proximal','distal':
-        neuron_pars['area'][lbl] = data['areas'][lbl]
-        neuron_pars['Ra'][lbl] = data['generations'][last][best,data['columns']['Ra_'+lbl]]
+        neuron_pars[lbl]['area'] = data['areas'][lbl]
+        neuron_pars[lbl]['Ra'] = data['generations'][last][best,data['columns']['Ra_'+lbl]]
         if lbl != 'soma':
-            neuron_pars['L'][lbl] = data['generations'][last][best,data['columns']['L_'+lbl]]
+            neuron_pars[lbl]['L'] = data['generations'][last][best,data['columns']['L_'+lbl]]
 
     # which model to use
     global ReducedNeuron

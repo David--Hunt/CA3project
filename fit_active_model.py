@@ -3,6 +3,7 @@
 import os
 import sys
 import CA3
+from CA3.utils import timestamp
 import numpy as np
 from scipy.interpolate import interp1d
 import argparse as arg
@@ -14,8 +15,6 @@ from emoo import mpi4py_loaded
 if mpi4py_loaded:
     from mpi4py import MPI
     processor_name = MPI.Get_processor_name()
-
-timestamp = lambda : time.strftime('%b %d, %H:%M:%S', time.localtime(time.time()))
 
 DEBUG = False
 ReducedNeuron = CA3.cells.SimplifiedNeuron

@@ -12,6 +12,9 @@ DEBUG = False
 
 __all__ = ['Neuron','SimplifiedNeuron','ThornyNeuron','AThornyNeuron','SWCNeuron','SimplifiedNeuron3D','taper_section']
 
+# convert from pS/um2 (human-friendly) to S/cm2 (NEURON unit)
+PSUM2_TO_SCM2 = 1e-4
+
 def taper_section(sec, max_diam, min_diam):
     if max_diam < 0 or min_diam < 0:
         raise Exception('Diameters must be positive')
@@ -311,9 +314,7 @@ class SimplifiedNeuron (Neuron):
         self.insert_calcium_dynamics()
         self.insert_calcium_currents()
 
-    def insert_fast_Na_and_delayed_rectifier_K(self, gnabar=0.05, gkbar=0.005, dend_mode='sigmoidal',
-                                               gnabar_dend_mult=0.1, gkbar_dend_mult=0.5, half_dist=200., steepness=30.,
-                                               max_dist=100.):
+    def insert_fast_Na_and_delayed_rectifier_K(self, dend_mode='sigmoidal'):
         if self.has_axon:
             sections = [sec for sec in it.chain(self.soma,self.axon)]
         else:
@@ -322,25 +323,30 @@ class SimplifiedNeuron (Neuron):
             sec.insert('hh2')
             sec.ena = 55
             sec.ek = -90
-            sec.gnabar_hh2 = gnabar
-            sec.gkbar_hh2 = gkbar
-            if self.has_axon and sec is self.axon[0]:
-                sec.gnabar_hh2 = 0.25 # FIX sodium conductance in the AIS
+            sec.gnabar_hh2 = self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2
+            sec.gkbar_hh2 = self.parameters['kdr']['gbar'] * PSUM2_TO_SCM2
+            if self.has_axon:
+                if sec is self.axon[0]:
+                    sec.gnabar_hh2 = self.parameters['nat']['gbar_hillock'] * PSUM2_TO_SCM2
+                elif sec is self.axon[1]:
+                    sec.gnabar_hh2 = self.parameters['nat']['gbar_ais'] * PSUM2_TO_SCM2
+                else:
+                    sec.gnabar_hh2 = self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2
         # for the reduction of sodium in the dendrites see Kim et al., 2012, Nat. Neurosci.
         if dend_mode == 'sigmoidal':
             # sigmoidally decreasing sodium in the dendrites
             h.distance(sec=self.soma[0])
-            gbar = gnabar_dend_mult*self.soma[0].gnabar_hh2
+            gbar = self.parameters['nat']['dend_scaling']*self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2
             for sec in it.chain(self.proximal,self.distal,self.basal):
                 sec.insert('hh2')
                 sec.ena = 55
                 sec.ek = -90
                 for seg in sec:
-                    seg.hh2.gkbar = gkbar_dend_mult * self.soma[0].gkbar_hh2
-                    seg.hh2.gnabar = gbar + (self.soma[0].gnabar_hh2 - gbar) / \
-                        (1. + np.exp((h.distance(seg.x,sec=sec) - half_dist)/steepness))
+                    seg.hh2.gkbar = self.parameters['kdr']['dend_scaling'] * self.parameters['kdr']['gbar'] * PSUM2_TO_SCM2
+                    seg.hh2.gnabar = gbar + (self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2 - gbar) / \
+                        (1. + np.exp((h.distance(seg.x,sec=sec) - self.parameters['nat']['half_dist'])/self.parameters['nat']['lambda']))
                     if DEBUG:
-                        print('gbar I_Na @ x = %g: %g' % (seg.x,seg.hh2.gnabar))
+                        print('gbar Nat @ x = %g: %g' % (h.distance(seg.x,sec=sec),seg.hh2.gnabar))
         elif dend_mode == 'linear':
             # linearly decreasing sodium in the dendrites
             max_dist += self.soma[0].L
@@ -390,62 +396,77 @@ class SimplifiedNeuron (Neuron):
                     if DEBUG and seg.na3.gbar > 0:
                         print('g_Na @ x = %g: %g' % (seg.x,seg.na3.gbar))
 
-    def insert_persistent_Na(self, gbar=1e-8, max_dist=100.):
-        for sec in h.allsec():
-            if sec in self.soma or (self.has_axon and sec in self.axon):
-                sec.insert('napinst')
-                # regular spiking
-                sec.gbar_napinst = gbar
-            else:
-                # FIX: choose which strategy to use for persistent sodium in the dendrites
-                max_dist += self.soma[0].L
-                h.distance(sec=self.soma[0])
-                if h.distance(0, sec=sec) < max_dist:
-                    if DEBUG:
-                        print('Inserting persistent sodium conductance in %s.' % h.secname(sec=sec))
-                    sec.insert('napinst')
-                    for seg in sec:
-                        seg.napinst.gbar = max(self.soma[0].gbar_napinst * (max_dist-h.distance(seg.x,sec=sec))/max_dist,0)
-                        if DEBUG and seg.napinst.gbar > 0:
-                            print('g_Na @ x = %g: %g' % (seg.x,seg.napinst.gbar))
+    def insert_persistent_Na(self):
+        if self.has_axon:
+            sections = [sec for sec in it.chain(self.soma,self.axon)]
+        else:
+            sections = self.soma
+        for sec in sections:
+            sec.insert('napinst')
+            sec.gbar_napinst = self.parameters['nap']['gbar'] * PSUM2_TO_SCM2
+        #for sec in h.allsec():
+        #    if sec in self.soma or (self.has_axon and sec in self.axon):
+        #        sec.insert('napinst')
+        #        # regular spiking
+        #        sec.gbar_napinst = gbar
+        #    else:
+        #        # FIX: choose which strategy to use for persistent sodium in the dendrites
+        #        max_dist += self.soma[0].L
+        #        h.distance(sec=self.soma[0])
+        #        if h.distance(0, sec=sec) < max_dist:
+        #            if DEBUG:
+        #                print('Inserting persistent sodium conductance in %s.' % h.secname(sec=sec))
+        #            sec.insert('napinst')
+        #            for seg in sec:
+        #                seg.napinst.gbar = max(self.soma[0].gbar_napinst * (max_dist-h.distance(seg.x,sec=sec))/max_dist,0)
+        #                if DEBUG and seg.napinst.gbar > 0:
+        #                    print('g_Na @ x = %g: %g' % (seg.x,seg.napinst.gbar))
 
-    def insert_Im(self, gbar=0.002):
+    def insert_Im(self):
         for sec in self.soma:
             sec.insert('km')
-            sec.gbar_km = gbar
+            sec.gbar_km = self.parameters['km']['gbar'] * PSUM2_TO_SCM2
 
-    def insert_AHP_K(self, gbar=0.03):
+    def insert_AHP_K(self):
         for sec in self.soma:
             sec.insert('KahpM95')
-            sec.gbar_KahpM95 = gbar
+            sec.gbar_KahpM95 = self.parameters['kahp']['gbar'] * PSUM2_TO_SCM2
 
-    def insert_K_D(self, gbar=1e-8):
+    def insert_K_D(self):
         for sec in self.soma:
             sec.insert('kd')
-            sec.gkdbar_kd = gbar
+            sec.gkdbar_kd = self.parameters['kd']['gbar'] * PSUM2_TO_SCM2
 
-    def insert_A_type_K(self, gbar=0.001):
-        for sec in h.allsec():
+    def insert_A_type_K(self):
+        if self.has_axon:
+            sections = [sec for sec in it.chain(self.soma,self.axon)]
+        else:
+            sections = self.soma
+        for sec in sections:
             sec.insert('kap')
-            sec.gkabar_kap = gbar
-            if self.has_axon and sec in self.axon:
-                sec.sh_kap = 0
+            sec.gkabar_kap = self.parameters['kap']['gbar'] * PSUM2_TO_SCM2
+        #for sec in h.allsec():
+        #    sec.insert('kap')
+        #    sec.gkabar_kap = gbar
+        #    if self.has_axon and sec in self.axon:
+        #        sec.sh_kap = 0
 
-    def insert_Ih(self, gbar=1e-6, gbar_dend_mult=9., half_dist=280., steepness=50.):
+    def insert_Ih(self):
         for sec in self.soma:
             sec.insert('hd')
-            sec.ghdbar_hd = gbar
+            sec.ghdbar_hd = self.parameters['ih']['gbar_soma'] * PSUM2_TO_SCM2
         # sigmoidally increasing Ih in the dendrites.
         # see Poirazi et al., 2003, Neuron
         h.distance(sec=self.soma[0])
-        gbar = gbar_dend_mult*self.soma[0].ghdbar_hd
+        gbar = self.parameters['ih']['dend_scaling'] * self.parameters['ih']['gbar_soma'] * PSUM2_TO_SCM2
         for sec in it.chain(self.proximal,self.distal):
             sec.insert('hd')
             for seg in sec:
-                seg.hd.ghdbar = self.soma[0].ghdbar_hd + (gbar - self.soma[0].ghdbar_hd) / \
-                    (1. + np.exp((half_dist-h.distance(seg.x,sec=sec))/steepness))
+                seg.hd.ghdbar = self.parameters['ih']['gbar_soma'] * PSUM2_TO_SCM2 + \
+                    (gbar - self.parameters['ih']['gbar_soma'] * PSUM2_TO_SCM2) / \
+                    (1. + np.exp((self.parameters['ih']['half_dist']-h.distance(seg.x,sec=sec))/self.parameters['ih']['lambda']))
                 if DEBUG:
-                    print('gbar Ih @ x = %g: %g' % (seg.x,seg.hd.ghdbar))
+                    print('gbar Ih @ x = %g: %g' % (h.distance(seg.x,sec=sec),seg.hd.ghdbar))
 
     def insert_calcium_dynamics(self):
         for sec in it.chain(self.soma,self.proximal,self.distal,self.basal):
@@ -455,13 +476,22 @@ class SimplifiedNeuron (Neuron):
                 seg.cacum.depth = seg.diam/2
 
     def insert_calcium_currents(self, gbar={'cal': 1e-5, 'cat': 1e-5, 'can': 1e-5}):
+        gbar = {}
+        for lbl in 'cal','cat','can':
+            try:
+                gbar[lbl] = self.parameters[lbl]['gbar']
+            except:
+                gbar[lbl] = 0.
         for sec in it.chain(self.soma,self.proximal,self.distal,self.basal):
-            sec.insert('cat')
-            sec.insert('cal')
-            sec.insert('can')
-            sec.gcalbar_cal = gbar['cal']
-            sec.gcatbar_cat = gbar['cat']
-            sec.gcanbar_can = gbar['can']
+            if gbar['cat'] > 0:
+                sec.insert('cat')
+                sec.gcatbar_cat = gbar['cat']
+            if gbar['cal'] > 0:
+                sec.insert('cal')
+                sec.gcalbar_cal = gbar['cal']
+            if gbar['can'] > 0:
+                sec.insert('can')
+                sec.gcanbar_can = gbar['can']
 
 class AThornyNeuron (SimplifiedNeuron):
     def __init__(self, parameters, with_axon=True, with_active=True):
@@ -673,7 +703,7 @@ class SimplifiedNeuron3D (SimplifiedNeuron):
             h.pt3dadd(0, 0, -20-(i-2)*20, 1, sec=self.axon[i])
             h.pt3dadd(0, 0, -20-(i-1)*20, 1, sec=self.axon[i])
 
-def run_step(amplitude=-0.1):
+def run_step(amplitude=0.1):
     parameters = {'scaling': 0.5,
                   'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 10e3, 'L': 20., 'diam': 20.},
                   'proximal': {'Ra': 500., 'El': -70., 'L': 500., 'diam': 5.},
@@ -692,6 +722,25 @@ def run_step(amplitude=-0.1):
     parameters['axon'] = parameters['soma'].copy()
     parameters['axon'].pop('L')
     parameters['axon'].pop('diam')
+
+    # fast sodium current
+    parameters['nat'] = {'gbar_soma': 500, 'gbar_hillock': 5000, 'gbar_ais': 10000,
+                         'half_dist': 50., 'lambda': 10., 'dend_scaling': 0.1}
+    # delayed rectifier potassium
+    parameters['kdr'] = {'gbar': 50, 'dend_scaling': 0.5}
+    # persistent sodium
+    parameters['nap'] = {'gbar': 1e-4}
+    # muscarinic potassium
+    parameters['km'] = {'gbar': 20}
+    # ahp potassium
+    parameters['kahp'] = {'gbar': 300}
+    # K-D
+    parameters['kd'] = {'gbar': 1e-4}
+    # A-type potassium
+    parameters['kap'] = {'gbar': 10}
+    # Ih current
+    parameters['ih'] = {'gbar_soma': 1e-2, 'dend_scaling': 10., 'half_dist': 100., 'lambda': 30.}
+
     n = SimplifiedNeuron(parameters,with_axon=True,with_active=True)
     #n = AThornyNeuron(parameters,with_axon=True,with_active=True)
     #n = ThornyNeuron(parameters,with_axon=True,with_active=True)
@@ -709,6 +758,10 @@ def run_step(amplitude=-0.1):
     p.plot(rec['t'],rec['vproximal'],'r',label='Proximal')
     p.plot(rec['t'],rec['vdistal'],'g',label='Distal')
     p.plot(rec['t'],rec['vbasal'],'b',label='Basal')
+    if n.has_axon:
+        p.plot(rec['t'],rec['vhillock'],'c',label='Hillock')
+        p.plot(rec['t'],rec['vais'],'m',label='AIS')
+        p.plot(rec['t'],rec['vaxon'],'y',label='Axon')
     p.xlabel('Time (ms)')
     p.ylabel('Membrane voltage (mV)')
     p.legend(loc='best')

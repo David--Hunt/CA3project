@@ -250,7 +250,8 @@ def optimize():
                                                                 'etac_start': args.etac_start, 'etac_end': args.etac_end,
                                                                 'p_m': args.pm},
                                   objectives=objectives, variables=variables, model_type=data['model_type'],
-                                  ephys_file=args.data_file, ephys_data=ephys_data, neuron_pars=neuron_pars)
+                                  h5_file=args.filename, ephys_file=args.data_file, ephys_data=ephys_data,
+                                  neuron_pars=neuron_pars)
 
 def display():
     parser = arg.ArgumentParser(description='Fit a reduced morphology to a detailed one considering only passive properties')

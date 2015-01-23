@@ -3,7 +3,7 @@
 import os
 import sys
 import CA3
-from CA3.utils import timestamp
+from CA3.utils import *
 import numpy as np
 from scipy.interpolate import interp1d
 import argparse as arg
@@ -20,7 +20,7 @@ DEBUG = False
 ReducedNeuron = CA3.cells.SimplifiedNeuron
 
 # the list of objectives
-objectives = ['current_steps']
+objectives = ['hyperpolarizing_current_steps','spikes_number']
 
 # the variables and their lower and upper search bounds
 variables = [
@@ -101,24 +101,59 @@ def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100,
     del stim
     return T,V
 
-def current_steps_error(parameters):
-    neuron = make_simplified_neuron(parameters)
-    t,V = current_steps(neuron, ephys_data['hyperpol_I'], ephys_data['dt'], ephys_data['dur'], \
-                            ephys_data['tbefore'], ephys_data['tafter'], parameters['El'])
-    #import pylab as p
-    #for i in range(V.shape[0]):
-    #    p.plot(t,ephys_data['hyperpol_V'][i,:],'k')
-    #    p.plot(t,V[i,:],'r')
-    #p.xlabel('Time (ms)')
-    #p.ylabel('Membrane voltage (mV)')
-    #p.show()
-    return np.sum((V-ephys_data['hyperpol_V'])**2)
+def hyperpolarizing_current_steps_error(t,V,Iinj,Vref):
+    #### ===>>> Iinj is an array of values, not a matrix like V and Vref
+    idx, = np.where(Iinj <= 0)
+    return np.sum((V[idx,:]-Vref[idx,:])**2)
+
+def spikes_number_error(tpeak, tpeak_ref, interval):
+    '''
+    tpeak: simulated spike peak times
+    tpeak_ref: real spike peak times
+    interval: 2-element array or list with beginning and end of stimulation
+    '''
+    err = 0
+    for tp,tp_ref in zip(tpeak,tpeak_ref):
+        # number of real spikes during current injection
+        idx, = np.where((tp_ref >= interval[0]) & (tp_ref <= interval[1]))
+        n_in_ref = len(idx)
+        # number of real spikes outside of the interval when current was injected
+        n_out_ref = len(tp_ref) - n_in_ref
+        # number of simulated spikes during current injection
+        idx, = np.where((tp >= interval[0]) & (tp <= interval[1]))
+        n_in = len(idx)
+        # number of simulated spikes outside of the interval when current was injected
+        n_out = len(tp) - n_in
+        err += ((n_in_ref - n_in)**2 + (n_out_ref - n_out)**2)
+    return err
 
 def objectives_error(parameters):
     if mpi4py_loaded:
         print('%s >>  STARTED objectives_error @ %s' % (processor_name,timestamp()))
+    # build the neuron with the current parameters
+    neuron = make_simplified_neuron(parameters)
+    # simulate the injection of current steps into the neuron
+    t,V = current_steps(neuron, ephys_data['I_amplitudes'], ephys_data['dt'], ephys_data['dur'], \
+                            ephys_data['tbefore'], ephys_data['tafter'], np.mean(ephys_data['V'][:,0]))
+    # extract significant features from the traces
+    tp,Vp = extractAPPeak(t, V, min_distance=1)
+    #tth,Vth = extractAPThreshold(t, V, tpeak=tp)
+    #Vhalf,width,interval = extractAPHalfWidth(t, V, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth)
+    #tahp,Vahp = extractAPAHP(t, V, tpeak=tp, tthresh=tth)
+    #tend,Vend = extractAPEnd(t, V, tpeak=tp, tthresh=tth, Vthresh=Vth, tahp=tahp)
+    #tadp,Vadp = extractAPADP(t, V, tthresh=tth, tahp=tahp)
     measures = {}
-    measures['current_steps'] = current_steps_error(parameters)
+    measures['hyperpolarizing_current_steps'] = hyperpolarizing_current_steps_error(t,V,ephys_data['I_amplitudes'],ephys_data['V'])
+    measures['spikes_number'] = spikes_number_error(tp, ephys_data['tp'], [ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur']])
+    #import pylab as p
+    #for i,v in enumerate(ephys_data['V']):
+    #    p.plot(t,v,'k')
+    #    p.plot(ephys_data['tp'][i],ephys_data['Vp'][i],'ko')
+    #    p.plot(t,V[i,:],'r')
+    #    p.plot(tp[i],Vp[i],'ro')
+    #p.xlabel('Time (ms)')
+    #p.ylabel('Membrane voltage (mV)')
+    #p.show()
     if mpi4py_loaded:
         print('%s << FINISHED objectives_error @ %s' % (processor_name,timestamp()))
     return measures
@@ -212,22 +247,24 @@ def optimize():
     # load the ephys data to use in the optimization
     global ephys_data
     ephys_data = CA3.utils.h5.load_h5_file(args.data_file)
-    ephys_data['t'] = np.arange(ephys_data['V'].shape[0]) * ephys_data['dt']
+    # transpose the data so that number of rows = number of trials
+    ephys_data['V'] = ephys_data['V'].transpose()
+    ephys_data['I'] = ephys_data['I'].transpose()
+    ephys_data['t'] = np.arange(ephys_data['V'].shape[1]) * ephys_data['dt']
     i = 0
-    while np.min(ephys_data['I'][:,i] >= 0):
+    while np.min(ephys_data['I'][i,:] >= 0):
         i += 1
-    idx, = np.where(ephys_data['I'][:,i] < 0)
+    idx, = np.where(ephys_data['I'][i,:] < 0)
     ephys_data['tbefore'] = ephys_data['t'][idx[0]]
     ephys_data['dur'] = ephys_data['t'][idx[-1]] - ephys_data['tbefore']
     ephys_data['tafter'] = ephys_data['t'][-1] - ephys_data['dur'] - ephys_data['tbefore']
     j = int((ephys_data['tbefore']+ephys_data['dur'])/2/ephys_data['dt'])
-    ephys_data['hyperpol_I'] = np.sort(np.unique(ephys_data['I'][j,:]))
-    ephys_data['hyperpol_I'] = ephys_data['hyperpol_I'][ephys_data['hyperpol_I']<0]
-    ephys_data['hyperpol_V'] = np.zeros((len(ephys_data['hyperpol_I']),ephys_data['V'].shape[0]))
-    for i,amp in enumerate(ephys_data['hyperpol_I']):
-        idx, = np.where(ephys_data['I'][j,:] == amp)
-        ephys_data['hyperpol_V'][i,:] = np.mean(ephys_data['V'][:,idx],axis=1)
-    ephys_data['hyperpol_I'] *= 1e-3
+    ephys_data['I_amplitudes'] = ephys_data['I'][:,j] * 1e-3
+    # reorganize data a bit...
+    n = len(ephys_data['I_amplitudes'])
+    for lbl in 'th','p','end','ahp','adp':
+        ephys_data['t'+lbl] = [ephys_data['t'+lbl][str(k)] for k in range(n)]
+        ephys_data['V'+lbl] = [ephys_data['V'+lbl][str(k)] for k in range(n)]
 
     # initiate the Evolutionary Multiobjective Optimization
     global emoo

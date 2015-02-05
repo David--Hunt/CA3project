@@ -128,8 +128,12 @@ def spikes_number_error(tpeak, tpeak_ref, interval):
     return err
 
 def objectives_error(parameters):
+    try:
+        objectives_error.ncalls += 1
+    except:
+        objectives_error.__dict__['ncalls'] = 1
     if mpi4py_loaded:
-        print('%s >>  STARTED objectives_error @ %s' % (processor_name,timestamp()))
+        print('%s >>  STARTED objectives_error %d @ %s' % (processor_name,objectives_error.ncalls,timestamp()))
     # build the neuron with the current parameters
     neuron = make_simplified_neuron(parameters)
     # simulate the injection of current steps into the neuron
@@ -155,17 +159,17 @@ def objectives_error(parameters):
     #p.ylabel('Membrane voltage (mV)')
     #p.show()
     if mpi4py_loaded:
-        print('%s << FINISHED objectives_error @ %s' % (processor_name,timestamp()))
+        print('%s << FINISHED objectives_error %d @ %s' % (processor_name,objectives_error.ncalls,timestamp()))
     return measures
 
 def check_population(population, columns, gen):
-    if mpi4py_loaded:
-        print('Processor name: %s' % processor_name)
+    #if mpi4py_loaded:
+    #    print('Processor name: %s' % processor_name)
     if emoo.master_mode:
-        print('Generation %03d. best = %g, mean = %g, std = %g' % (gen+1,population[0,columns['current_steps']],\
-                                                                       np.mean(population[:,columns['current_steps']]),\
-                                                                       np.std(population[:,columns['current_steps']])))
-        sys.stdout.flush()
+        #print('Generation %03d. best = %g, mean = %g, std = %g' % (gen+1,population[0,columns['current_steps']],\
+        #                                                               np.mean(population[:,columns['current_steps']]),\
+        #                                                               np.std(population[:,columns['current_steps']])))
+        #sys.stdout.flush()
         if gen == 0:
             CA3.utils.h5.save_h5_file(h5_filename, 'w', columns=columns)
         CA3.utils.h5.save_h5_file(h5_filename,'a',generations={('%d'%gen): population})

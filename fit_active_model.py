@@ -2,13 +2,14 @@
 
 import os
 import sys
-import CA3
-from CA3.utils import *
 import numpy as np
-from scipy.interpolate import interp1d
 import argparse as arg
 import itertools as it
 import time
+import copy
+import CA3
+from CA3.utils import *
+from scipy.interpolate import interp1d
 from neuron import h
 from emoo import Emoo
 from emoo import mpi4py_loaded
@@ -57,7 +58,7 @@ neuron_pars = {'soma': {'Ra': None, 'area': None},
 ephys_data = None
 
 def make_simplified_neuron(parameters):
-    pars = neuron_pars.copy()
+    pars = copy.deepcopy(neuron_pars)
     for k,v in parameters.iteritems():
         if k == 'scaling':
             pars[k] = v
@@ -75,9 +76,20 @@ def make_simplified_neuron(parameters):
                 pars[key] = {value: v}
     # the passive properties of the axon are the same as the soma
     pars['axon'] = pars['soma'].copy()
+    try:
+        pars['axon'].pop('L')
+    except:
+        pass
+    try:
+        pars['axon'].pop('diam')
+    except:
+        pass
     return ReducedNeuron(pars, with_axon=True, with_active=True)
 
 def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100, V0=-70):
+    token = int(1e9 * np.random.uniform())
+    print('STARTED current_steps %d @ %s (distal length = %g um).' % (token,timestamp(),neuron_pars['distal']['L']))
+    neuron.save_properties('%09d.h5' % token)
     stim = h.IClamp(neuron.soma[0](0.5))
     stim.dur = dur
     stim.delay = tbefore
@@ -99,6 +111,7 @@ def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100,
         voltage.append(np.array(rec['v']))
     stim.amp = 0
     del stim
+    print('FINISHED current_steps %d @ %s' % (token,timestamp()))
     return T,V
 
 def hyperpolarizing_current_steps_error(t,V,Iinj,Vref):

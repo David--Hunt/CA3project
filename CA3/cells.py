@@ -703,6 +703,22 @@ class SimplifiedNeuron3D (SimplifiedNeuron):
             h.pt3dadd(0, 0, -20-(i-2)*20, 1, sec=self.axon[i])
             h.pt3dadd(0, 0, -20-(i-1)*20, 1, sec=self.axon[i])
 
+def neuron_factory(filename):
+    data = h5.load_h5_file(filename)
+    if data['neuron_type'] == 'SimplifiedNeuron':
+        cls = SimplifiedNeuron
+    elif data['neuron_type'] == 'AThornyNeuron':
+        cls = AThornyNeuron
+    elif data['neuron_type'] == 'ThornyNeuron':
+        cls = ThornyNeuron
+    elif data['neuron_type'] == 'SWCNeuron':
+        cls = SWCNeuron
+    elif data['neuron_type'] == 'SimplifiedNeuron3D':
+        cls = SimplifiedNeuron3D
+    else:
+        raise Exception('Unknown neuron model: %s.' % data['neuron_type'])
+    return cls(data['parameters'], data['has_axon'], data['has_active'])
+
 def run_step(amplitude=0.1):
     parameters = {'scaling': 0.5,
                   'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 10e3, 'L': 20., 'diam': 20.},

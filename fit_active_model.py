@@ -24,28 +24,59 @@ ReducedNeuron = CA3.cells.SimplifiedNeuron
 objectives = ['hyperpolarizing_current_steps','spike_onset','spike_offset','isi']
 
 # the variables and their lower and upper search bounds
-variables = [
-    ['Cm', 0.6, 3.],                       # [uF/cm2] membrane capacitance
-    ['Rm', 10e3, 30e3],                    # [Ohm cm2] membrane resistance
-    ['El', -85., -50.],                    # [mV] reversal potential of leak conductance
-    ['scaling', 0.5, 2.],                  # [1] scaling of dendritic capacitance and membrane resistance
-    ['nat_gbar_soma', 0., 500.],           # [pS/um2]
-    ['nat_gbar_hillock', 0., 20000.],      # [pS/um2]
-    ['nat_gbar_ais', 0., 20000.],          # [pS/um2]
-    ['nat_half_dist', 0., 500.],           # [um]
-    ['nat_lambda', 1., 500.],              # [um]
-    ['nat_dend_scaling', 0., 2.],          # [1]
-    ['kdr_gbar', 0., 100.],                # [pS/um2]
-    ['kdr_dend_scaling', 0., 2.],          # [1]
-    ['nap_gbar', 0., 5.],                  # [pS/um2] in the paper, 0 < gbar < 4.1
-    ['km_gbar', 0., 2.],                   # [pS/um2]
-    ['kahp_gbar', 0., 500.],               # [pS/um2]
-    ['kd_gbar', 0., 0.01],                 # [pS/um2]
-    ['kap_gbar', 0., 100.],                # [pS/um2]
-    ['ih_gbar_soma', 0., 0.1],             # [pS/um2]
-    ['ih_dend_scaling', 0., 10.],          # [1]
-    ['ih_half_dist', 0., 500.],            # [um]
-    ['ih_lambda', 1., 500.]]               # [um]
+if False:
+    variables = [
+        ['Cm', 0.99, 1.01],                       # [uF/cm2] membrane capacitance (0.6,3)
+        ['Rm', 9.99e3, 10.01e3],                    # [Ohm cm2] membrane resistance (10e3,30e3)
+        ['El', -71., -69.],                    # [mV] reversal potential of leak conductance (-85,-50)
+        ['scaling', 0.49, 0.51],                  # [1] scaling of dendritic capacitance and membrane resistance (0.5,2)
+        ['nat_gbar_soma', 499., 501.],           # [pS/um2] (0,500)
+        ['nat_gbar_hillock', 4999., 5001.],      # [pS/um2] (0,20000)
+        ['nat_gbar_ais', 9999., 10001.],          # [pS/um2] (0,20000)
+        ['nat_half_dist', 49., 51.],           # [um] (0,500)
+        ['nat_lambda', 9.9, 10.1],              # [um] (1,500)
+        ['nat_dend_scaling', 0.09, 0.11],          # [1] (0,2)
+        ['kdr_gbar', 49., 151.],                # [pS/um2] (0,100)
+        ['kdr_dend_scaling', 0.49, 0.51]]          # [1] (0,2)
+
+if True:
+    variables = [
+        ['Cm', 0.6, 3.],                       # [uF/cm2] membrane capacitance (0.6,3)
+        ['Rm', 5e3, 30e3],                    # [Ohm cm2] membrane resistance (10e3,30e3)
+        ['El', -85., -50.],                    # [mV] reversal potential of leak conductance (-85,-50)
+        ['scaling', 0.3, 2.],                  # [1] scaling of dendritic capacitance and membrane resistance (0.5,2)
+        ['nat_gbar_soma', 0., 500.],           # [pS/um2] (0,500)
+        ['nat_gbar_hillock', 0., 20000.],      # [pS/um2] (0,20000)
+        ['nat_gbar_ais', 0., 20000.],          # [pS/um2] (0,20000)
+        ['nat_half_dist', 0., 500.],           # [um] (0,500)
+        ['nat_lambda', 1., 500.],              # [um] (1,500)
+        ['nat_dend_scaling', 0., 2.],          # [1] (0,2)
+        ['kdr_gbar', 0., 100.],                # [pS/um2] (0,100)
+        ['kdr_dend_scaling', 0., 2.]]          # [1] (0,2)
+
+if False:
+    variables = [
+        ['Cm', 0.6, 3.],                       # [uF/cm2] membrane capacitance (0.6,3)
+        ['Rm', 10e3, 30e3],                    # [Ohm cm2] membrane resistance (10e3,30e3)
+        ['El', -85., -50.],                    # [mV] reversal potential of leak conductance (-85,-50)
+        ['scaling', 0.5, 2.],                  # [1] scaling of dendritic capacitance and membrane resistance (0.5,2)
+        ['nat_gbar_soma', 0., 500.],           # [pS/um2] (0,500)
+        ['nat_gbar_hillock', 0., 20000.],      # [pS/um2] (0,20000)
+        ['nat_gbar_ais', 0., 20000.],          # [pS/um2] (0,20000)
+        ['nat_half_dist', 0., 500.],           # [um] (0,500)
+        ['nat_lambda', 1., 500.],              # [um] (1,500)
+        ['nat_dend_scaling', 0., 2.],          # [1] (0,2)
+        ['kdr_gbar', 0., 100.],                # [pS/um2] (0,100)
+        ['kdr_dend_scaling', 0., 2.],          # [1] (0,2)
+        ['nap_gbar', 0., 5.],                  # [pS/um2] in the paper, 0 < gbar < 4.1
+        ['km_gbar', 0., 2.],                   # [pS/um2]
+        ['kahp_gbar', 0., 500.],               # [pS/um2]
+        ['kd_gbar', 0., 0.01],                 # [pS/um2]
+        ['kap_gbar', 0., 100.],                # [pS/um2]
+        ['ih_gbar_soma', 0., 0.1],             # [pS/um2]
+        ['ih_dend_scaling', 0., 10.],          # [1]
+        ['ih_half_dist', 0., 500.],            # [um]
+        ['ih_lambda', 1., 500.]]               # [um]
 
 # the neuron parameters that have been obtained by the previous
 # optimization of the passive properties
@@ -95,20 +126,24 @@ def extract_average_trace(t,x,events,window=[0.5,14.],interp_dt=-1):
     else:
         window = [float(w) for w in window]
     dt = t[1]-t[0]
+    dx = (x[:,2:] - x[:,:-2]) / (2*dt)
     before = np.round(window[0] / dt)
     after = np.round(window[1] / dt)
     T = np.arange(before+after+1)*dt
     X = np.zeros((sum([len(e) for e in events]),before+after+1))
+    dX = np.zeros((sum([len(e) for e in events]),before+after+1))
     cnt = 0
     for i in range(x.shape[0]):
         for e in events[i]:
             k = np.round(e/dt)
             try:
                 X[cnt,:] = x[i,k-before:k+after+1]
+                dX[cnt,:] = dx[i,k-1-before:k+after]
                 cnt += 1
             except:
                 pass
     X = X[:cnt,:]
+    dX = dX[:cnt,:]
     if interp_dt > 0:
         n = X.shape[0]
         Tint = np.arange(0,np.sum(window),interp_dt)
@@ -116,7 +151,7 @@ def extract_average_trace(t,x,events,window=[0.5,14.],interp_dt=-1):
         for i in range(n):
             Xint[i,:] = spline(T, X[i,:], Tint)
         return extract_average_trace(Tint,Xint,[[Tint[i]] for i in np.argmax(Xint,axis=1)],[w-offset for w in window],interp_dt=-1)
-    return T-window[0],np.mean(X,axis=0)
+    return T-window[0],np.mean(X,axis=0),np.mean(dX,axis=0)
 
 def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100, V0=-70):
     token = int(1e9 * np.random.uniform())
@@ -151,8 +186,7 @@ def hyperpolarizing_current_steps_error(t,V,Iinj,Vref):
 def spike_shape_error(t,V,tp,window):
     dt = t[1]-t[0]
     dV = (V[:,2:] - V[:,:-2]) / (2*dt)
-    tavg,Vavg = extract_average_trace(t,V,tp,interp_dt=1./resampling_frequency)
-    _,dVavg = extract_average_trace(t[1:-1],dV,tp,interp_dt=1./resampling_frequency)
+    tavg,Vavg,dVavg = extract_average_trace(t,V,tp,interp_dt=1./resampling_frequency)
     idx, = np.where((tavg>=window[0]) & (tavg<=window[1]))
     return np.sum((Vavg[idx] - ephys_data['Vavg'][idx])**2) + 0.1*np.sum((dVavg[idx] - ephys_data['dVavg'][idx])**2)
 
@@ -336,9 +370,7 @@ def optimize():
     ephys_data['tafter'] = ephys_data['t'][-1] - ephys_data['dur'] - ephys_data['tbefore']
     # find the average spike shape: this makes sense only for regular spiking cells
     tp = [ephys_data['tp'][str(i)] for i in range(ephys_data['V'].shape[0])]
-    ephys_data['tavg'],ephys_data['Vavg'] = extract_average_trace(ephys_data['t'],ephys_data['V'],tp,interp_dt=1./resampling_frequency)
-    dV = (ephys_data['V'][:,2:] - ephys_data['V'][:,:-2]) / (2*ephys_data['dt'])
-    _,ephys_data['dVavg'] = extract_average_trace(ephys_data['t'][1:-1],dV,tp,interp_dt=1./resampling_frequency)
+    ephys_data['tavg'],ephys_data['Vavg'],ephys_data['dVavg'] = extract_average_trace(ephys_data['t'],ephys_data['V'],tp,interp_dt=1./resampling_frequency)
     # find the current amplitudes
     j = int((ephys_data['tbefore']+ephys_data['dur'])/2/ephys_data['dt'])
     idx, = np.where(ephys_data['I'][:,j] <= 0)

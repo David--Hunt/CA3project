@@ -305,14 +305,62 @@ class SimplifiedNeuron (Neuron):
         
     def insert_active_mech(self):
         self.insert_fast_Na_and_delayed_rectifier_K()
-        self.insert_persistent_Na()
-        self.insert_Im()
-        self.insert_AHP_K()
-        self.insert_K_D()
-        self.insert_A_type_K()
-        self.insert_Ih()
+        try:
+            self.insert_persistent_Na()
+        except:
+            if DEBUG:
+                print('Not inserting persistent sodium current.')
+            pass
+        try:
+            self.insert_Im()
+        except:
+            if DEBUG:
+                print('Not inserting Im.')
+            pass
+        try:
+            self.insert_AHP_K()
+        except:
+            if DEBUG:
+                print('Not inserting potassium current responsible for AHP.')
+            pass
+        try:
+            self.insert_K_D()
+        except:
+            if DEBUG:
+                print('Not inserting K-D current.')
+            pass
+        try:
+            self.insert_A_type_K()
+        except:
+            if DEBUG:
+                print('Not inserting A-type potassium current.')
+            pass
+        try:
+            self.insert_Ih()
+        except:
+            if DEBUG:
+                print('Not inserting Ih.')
+            pass
+
         self.insert_calcium_dynamics()
-        self.insert_calcium_currents()
+        try:
+            self.insert_calcium_current('cal')
+        except:
+            if DEBUG:
+                print('Not inserting L-type calcium current.')
+            pass
+        try:
+            self.insert_calcium_current('cat')
+        except:
+            if DEBUG:
+                print('Not inserting T-type calcium current.')
+            pass
+        try:
+            self.insert_calcium_current('can')
+        except:
+            if DEBUG:
+                print('Not inserting N-type calcium current.')
+            pass
 
     def insert_fast_Na_and_delayed_rectifier_K(self, dend_mode='sigmoidal'):
         if self.has_axon:
@@ -397,6 +445,7 @@ class SimplifiedNeuron (Neuron):
                         print('g_Na @ x = %g: %g' % (seg.x,seg.na3.gbar))
 
     def insert_persistent_Na(self):
+        self.parameters['nap']['gbar']
         if self.has_axon:
             sections = [sec for sec in it.chain(self.soma,self.axon)]
         else:
@@ -423,21 +472,25 @@ class SimplifiedNeuron (Neuron):
         #                    print('g_Na @ x = %g: %g' % (seg.x,seg.napinst.gbar))
 
     def insert_Im(self):
+        self.parameters['km']['gbar']
         for sec in self.soma:
             sec.insert('km')
             sec.gbar_km = self.parameters['km']['gbar'] * PSUM2_TO_SCM2
 
     def insert_AHP_K(self):
+        self.parameters['kahp']['gbar']
         for sec in self.soma:
             sec.insert('KahpM95')
             sec.gbar_KahpM95 = self.parameters['kahp']['gbar'] * PSUM2_TO_SCM2
 
     def insert_K_D(self):
+        self.parameters['kd']['gbar']
         for sec in self.soma:
             sec.insert('kd')
             sec.gkdbar_kd = self.parameters['kd']['gbar'] * PSUM2_TO_SCM2
 
     def insert_A_type_K(self):
+        self.parameters['kap']['gbar']
         if self.has_axon:
             sections = [sec for sec in it.chain(self.soma,self.axon)]
         else:
@@ -452,6 +505,7 @@ class SimplifiedNeuron (Neuron):
         #        sec.sh_kap = 0
 
     def insert_Ih(self):
+        self.parameters['ih']['gbar_soma']
         for sec in self.soma:
             sec.insert('hd')
             sec.ghdbar_hd = self.parameters['ih']['gbar_soma'] * PSUM2_TO_SCM2
@@ -475,23 +529,11 @@ class SimplifiedNeuron (Neuron):
             for seg in sec:
                 seg.cacum.depth = seg.diam/2
 
-    def insert_calcium_currents(self, gbar={'cal': 1e-5, 'cat': 1e-5, 'can': 1e-5}):
-        gbar = {}
-        for lbl in 'cal','cat','can':
-            try:
-                gbar[lbl] = self.parameters[lbl]['gbar']
-            except:
-                gbar[lbl] = 0.
+    def insert_calcium_current(self, label):
+        self.parameters[label]['gbar']
         for sec in it.chain(self.soma,self.proximal,self.distal,self.basal):
-            if gbar['cat'] > 0:
-                sec.insert('cat')
-                sec.gcatbar_cat = gbar['cat']
-            if gbar['cal'] > 0:
-                sec.insert('cal')
-                sec.gcalbar_cal = gbar['cal']
-            if gbar['can'] > 0:
-                sec.insert('can')
-                sec.gcanbar_can = gbar['can']
+            sec.insert(label)
+            sec.__setattr__('g{0}bar_{0}'.format(label), self.parameters[label]['gbar'])
 
 class AThornyNeuron (SimplifiedNeuron):
     def __init__(self, parameters, with_axon=True, with_active=True):

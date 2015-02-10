@@ -98,7 +98,7 @@ def extractAPHalfWidth(T, V, threshold=None, tpeak=None, Vpeak=None, tthresh=Non
             idx, = np.where((T >= tpeak[i][j]) & (T<=tpeak[i][j]+2))
             above, = np.where(V[i,idx] > Vhalf[i][j])
             interval[i][1,j] = np.polyval(np.polyfit(V[i,idx[above[-1]:above[-1]+2]],T[idx[above[-1]:above[-1]+2]],1),Vhalf[i][j])
-    width = [np.diff(x,n=1,axis=0) for x in interval]
+    width = [np.squeeze(np.diff(x,n=1,axis=0)) for x in interval]
     return Vhalf,width,interval
 
 def extractAPAHP(T, V, max_ahp_dur=5, threshold=None, tpeak=None, tthresh=None, tadp=None):

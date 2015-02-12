@@ -42,17 +42,17 @@ if False:
 if True:
     variables = [
         ['Cm', 0.6, 3.],                       # [uF/cm2] membrane capacitance (0.6,3)
-        ['Rm', 5e3, 30e3],                    # [Ohm cm2] membrane resistance (10e3,30e3)
+        ['Rm', 5e3, 30e3],                     # [Ohm cm2] membrane resistance (10e3,30e3)
         ['El', -85., -50.],                    # [mV] reversal potential of leak conductance (-85,-50)
         ['scaling', 0.3, 2.],                  # [1] scaling of dendritic capacitance and membrane resistance (0.5,2)
         ['nat_gbar_soma', 0., 500.],           # [pS/um2] (0,500)
         ['nat_gbar_hillock', 0., 20000.],      # [pS/um2] (0,20000)
         ['nat_gbar_ais', 0., 20000.],          # [pS/um2] (0,20000)
-        ['nat_half_dist', 0., 500.],           # [um] (0,500)
-        ['nat_lambda', 1., 500.],              # [um] (1,500)
-        ['nat_dend_scaling', 0., 2.],          # [1] (0,2)
-        ['kdr_gbar', 0., 100.],                # [pS/um2] (0,100)
-        ['kdr_dend_scaling', 0., 2.]]          # [1] (0,2)
+        ['nat_gbar_distal', 0., 100.],         # [pS/um2] (0,100)
+        ['nat_lambda', 1., 100.],              # [um] (1,500)
+        ['kdr_gbar_soma', 0., 100.],           # [pS/um2] (0,100)
+        ['kdr_gbar_distal', 0., 10.],          # [pS/um2] (0,10)
+        ['kdr_lambda', 1., 100.]]              # [um] (0,100)
 
 if False:
     variables = [

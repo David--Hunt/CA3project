@@ -78,7 +78,7 @@ def extractAPThreshold(T, V, threshold=None, tpeak=None):
             vthresh[i][j] = v[k+3]
     return tthresh,vthresh
 
-def extractAPHalfWidth(T, V, threshold=None, tpeak=None, Vpeak=None, tthresh=None, Vthresh=None):
+def extractAPHalfWidth(T, V, threshold=None, tpeak=None, Vpeak=None, tthresh=None, Vthresh=None, interp=True):
     if len(V.shape) == 1:
         V = np.array([V])
     nexp = V.shape[0]
@@ -94,10 +94,17 @@ def extractAPHalfWidth(T, V, threshold=None, tpeak=None, Vpeak=None, tthresh=Non
         for j in range(nspks[i]):
             idx, = np.where((T >= tthresh[i][j]) & (T<=tpeak[i][j]))
             below, = np.where(V[i,idx] < Vhalf[i][j])
-            interval[i][0,j] = np.polyval(np.polyfit(V[i,idx[below[-1]:below[-1]+2]],T[idx[below[-1]:below[-1]+2]],1),Vhalf[i][j])
+            if interp:
+                interval[i][0,j] = np.polyval(np.polyfit(V[i,idx[below[-1]:below[-1]+2]],T[idx[below[-1]:below[-1]+2]],1),Vhalf[i][j])
+            else:
+                Vhalf[i][j] = V[i,idx[below[-1]]]
+                interval[i][0,j] = T[idx[below[-1]]]
             idx, = np.where((T >= tpeak[i][j]) & (T<=tpeak[i][j]+2))
             above, = np.where(V[i,idx] > Vhalf[i][j])
-            interval[i][1,j] = np.polyval(np.polyfit(V[i,idx[above[-1]:above[-1]+2]],T[idx[above[-1]:above[-1]+2]],1),Vhalf[i][j])
+            if interp:
+                interval[i][1,j] = np.polyval(np.polyfit(V[i,idx[above[-1]:above[-1]+2]],T[idx[above[-1]:above[-1]+2]],1),Vhalf[i][j])
+            else:
+                interval[i][1,j] = T[idx[above[-1]]]
     width = [np.squeeze(np.diff(x,n=1,axis=0)) for x in interval]
     return Vhalf,width,interval
 

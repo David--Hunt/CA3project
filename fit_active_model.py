@@ -172,7 +172,7 @@ def logger(log_type, msg, token):
 def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100, V0=-70, token=None):
     if not token is None:
         logger('start', 'current_steps', token)
-    #neuron.save_properties('%09d.h5' % token)
+    neuron.save_properties('%09d.h5' % token)
     stim = h.IClamp(neuron.soma[0](0.5))
     stim.dur = dur
     stim.delay = tbefore
@@ -297,7 +297,7 @@ def objectives_error(parameters):
 
     if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,token=token):
         logger('start', 'extractAPHalfWidth', token)
-        Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=0, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
+        Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=0, tpeak=tp, Vpeak=Vp, interp=False)
         logger('end', 'extractAPHalfWidth', token)
         if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,width,token):
             measures['hyperpolarizing_current_steps'] = hyperpolarizing_current_steps_error(t,V,ephys_data['I_amplitudes'],ephys_data['V'])

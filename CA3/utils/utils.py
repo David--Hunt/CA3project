@@ -12,7 +12,7 @@ __all__ = ['findpeaks', 'extractAPPeak', 'extractAPThreshold', 'extractAPHalfWid
 
 SWC_types = {'soma': 1, 'axon': 2, 'basal': 3, 'apical': 4}
 
-timestamp = lambda: time.strftime('%b %d, %H:%M:%S ', time.localtime(time.time()))
+timestamp = lambda: time.strftime('%b %d, %H:%M:%S', time.localtime(time.time()))
 
 def findpeaks(x, min_peak_height=None, min_peak_distance=None):
     locs = np.intersect1d(np.where(x[1:] > x[:-1])[0]+1,np.where(x[:-1] > x[1:])[0])
@@ -104,7 +104,11 @@ def extractAPHalfWidth(T, V, threshold=None, tpeak=None, Vpeak=None, tthresh=Non
             if interp:
                 interval[i][1,j] = np.polyval(np.polyfit(V[i,idx[above[-1]:above[-1]+2]],T[idx[above[-1]:above[-1]+2]],1),Vhalf[i][j])
             else:
-                interval[i][1,j] = T[idx[above[-1]]]
+                try:
+                    interval[i][1,j] = T[idx[above[-1]]]
+                except:
+                    import pdb
+                    pdb.set_trace()
     width = [np.squeeze(np.diff(x,n=1,axis=0)) for x in interval]
     return Vhalf,width,interval
 

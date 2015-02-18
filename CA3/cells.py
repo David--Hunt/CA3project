@@ -10,7 +10,8 @@ h.load_file('stdlib.hoc')
 
 DEBUG = False
 
-__all__ = ['Neuron','SimplifiedNeuron','ThornyNeuron','AThornyNeuron','SWCNeuron','SimplifiedNeuron3D','taper_section']
+__all__ = ['Neuron','SimplifiedNeuron','ThornyNeuron','AThornyNeuron','SWCNeuron','SimplifiedNeuron3D',
+           'taper_section','neuron_factory']
 
 # convert from pS/um2 (human-friendly) to S/cm2 (NEURON unit)
 PSUM2_TO_SCM2 = 1e-4

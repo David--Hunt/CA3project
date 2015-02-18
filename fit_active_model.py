@@ -119,7 +119,7 @@ def make_simplified_neuron(parameters):
         pass
     return ReducedNeuron(pars, with_axon=True, with_active=True)
 
-def extract_average_trace(t,x,events,window=[0.5,14.],interp_dt=-1,token=None):
+def extract_average_trace(t,x,events,window=[0.5,10.],interp_dt=-1,token=None):
     if not token is None:
         logger('start','extract_average_trace',token)
     if interp_dt > 0:
@@ -152,7 +152,10 @@ def extract_average_trace(t,x,events,window=[0.5,14.],interp_dt=-1,token=None):
         Xint = np.zeros((n,len(Tint)))
         for i in range(n):
             Xint[i,:] = spline(T, X[i,:], Tint)
-        return extract_average_trace(Tint,Xint,[[Tint[i]] for i in np.argmax(Xint,axis=1)],[w-offset for w in window],interp_dt=-1,token=token)
+        return extract_average_trace(Tint,Xint,
+                                     [[Tint[i]] for i in np.argmax(Xint,axis=1)],
+                                     [w-offset for w in window],
+                                     interp_dt=-1,token=token)
     if not token is None:
         logger('end','extract_average_trace',token)
     return T-window[0],np.mean(X,axis=0),np.mean(dX,axis=0)
@@ -169,7 +172,7 @@ def logger(log_type, msg, token):
 def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100, V0=-70, token=None):
     if not token is None:
         logger('start', 'current_steps', token)
-    neuron.save_properties('%09d.h5' % token)
+    #neuron.save_properties('%09d.h5' % token)
     stim = h.IClamp(neuron.soma[0](0.5))
     stim.dur = dur
     stim.delay = tbefore
@@ -225,7 +228,7 @@ def isi_error(tp):
         return 1e10
     return err
 
-def check_prerequisites(t,V,ton,toff,tp,Vp,tth,Vth,width,token=None):
+def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
     retval = True
     if not token is None:
         logger('start','check_prerequisites',token)
@@ -233,6 +236,7 @@ def check_prerequisites(t,V,ton,toff,tp,Vp,tth,Vth,width,token=None):
     idx, = np.where((t>toff-200) & (t<toff))
     for i in range(n):
         m = np.mean(V[i,idx])
+        s = np.std(V[i,idx])
         # number of spikes in the reference trace (ephys data) and in the simulated one
         ref_nspikes = len(np.where((ephys_data['tp'][i]>ton) & (ephys_data['tp'][i]<=toff))[0])
         nspikes = len(np.where((tp[i]>ton) & (tp[i]<=toff))[0])
@@ -247,16 +251,15 @@ def check_prerequisites(t,V,ton,toff,tp,Vp,tth,Vth,width,token=None):
             retval = False
             break
         # spike block?
-        elif ref_nspikes > 0 and nspikes > 0 and tp[i][-1] < toff-200 and m > -40:
-            print('%d check_prerequistes: mean(voltage) > -40.' % token)
+        elif ref_nspikes > 0 and nspikes > 0 and m > -40 and s < 1:
+            print('%d check_prerequistes: mean(voltage) > -40 and std(voltage) < 1.' % token)
             retval = False
             break
-        #elif ref_nspikes > 0 and (nspikes < ref_nspikes-1 or nspikes > ref_nspikes+1):
-        #    return False
-        # no spike width should exceed 3 ms
-        if nspikes > 0 and np.max(width[i]) > 3:
-            retval = False
-            break
+        if not width is None:
+            # no spike width should exceed 3 ms
+            if nspikes > 0 and np.max(width[i]) > 3:
+                retval = False
+                break
         # decrease in spike height shouldn't exceed 20%
         if nspikes > 2:
             for j in range(2,nspikes):
@@ -286,26 +289,21 @@ def objectives_error(parameters):
     logger('start', 'extractAPPeak', token)
     tp,Vp = extractAPPeak(t, V, threshold=0, min_distance=1)
     logger('end', 'extractAPPeak', token)
-    logger('start', 'extractAPThreshold', token)
-    tth,Vth = extractAPThreshold(t, V, threshold=0, tpeak=tp)
-    logger('end', 'extractAPThreshold', token)
-    logger('start', 'extractAPHalfWidth', token)
-    Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=0, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
-    logger('end', 'extractAPHalfWidth', token)
-    ##tahp,Vahp = extractAPAHP(t, V, tpeak=tp, tthresh=tth)
-    ##tend,Vend = extractAPEnd(t, V, tpeak=tp, tthresh=tth, Vthresh=Vth, tahp=tahp)
-    ##tadp,Vadp = extractAPADP(t, V, tthresh=tth, tahp=tahp)
 
     measures = {'hyperpolarizing_current_steps': 1e20,
                 'spike_onset': 1e20,
                 'spike_offset': 1e20,
                 'isi': 1e20}
 
-    if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,tth,Vth,width,token):
-        measures['hyperpolarizing_current_steps'] = hyperpolarizing_current_steps_error(t,V,ephys_data['I_amplitudes'],ephys_data['V'])
-        measures['spike_onset'] = spike_onset_error(t,V,tp,token)
-        measures['spike_offset'] = spike_offset_error(t,V,tp,token)
-        measures['isi'] = isi_error(tp)
+    if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,token=token):
+        logger('start', 'extractAPHalfWidth', token)
+        Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=0, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
+        logger('end', 'extractAPHalfWidth', token)
+        if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,width,token):
+            measures['hyperpolarizing_current_steps'] = hyperpolarizing_current_steps_error(t,V,ephys_data['I_amplitudes'],ephys_data['V'])
+            measures['spike_onset'] = spike_onset_error(t,V,tp,token)
+            measures['spike_offset'] = spike_offset_error(t,V,tp,token)
+            measures['isi'] = isi_error(tp)
 
     #import pylab as p
     #for i,v in enumerate(ephys_data['V']):

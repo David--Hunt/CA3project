@@ -119,17 +119,17 @@ def make_simplified_neuron(parameters):
         pass
     return ReducedNeuron(pars, with_axon=True, with_active=True)
 
-def extract_average_trace(t,x,events,window=[0.5,10.],interp_dt=-1,token=None):
+def extract_average_trace(t,x,events,window,interp_dt=-1,token=None):
     if not token is None:
         logger('start','extract_average_trace',token)
     if interp_dt > 0:
         offset = 0.2
-        window = [float(w)+offset for w in window]
+        window = [float(window[0])-offset,float(window[1])+offset]
     else:
         window = [float(w) for w in window]
     dt = t[1]-t[0]
     dx = (x[:,2:] - x[:,:-2]) / (2*dt)
-    before = np.round(window[0] / dt)
+    before = -np.round(window[0] / dt)
     after = np.round(window[1] / dt)
     T = np.arange(before+after+1)*dt
     X = np.zeros((sum([len(e) for e in events]),before+after+1))
@@ -148,17 +148,17 @@ def extract_average_trace(t,x,events,window=[0.5,10.],interp_dt=-1,token=None):
     dX = dX[:cnt,:]
     if interp_dt > 0:
         n = X.shape[0]
-        Tint = np.arange(0,np.sum(window),interp_dt)
+        Tint = np.arange(0,np.sum(np.abs(window)),interp_dt)
         Xint = np.zeros((n,len(Tint)))
         for i in range(n):
             Xint[i,:] = spline(T, X[i,:], Tint)
         return extract_average_trace(Tint,Xint,
                                      [[Tint[i]] for i in np.argmax(Xint,axis=1)],
-                                     [w-offset for w in window],
+                                     [window[0]+offset, window[1]-offset],
                                      interp_dt=-1,token=token)
     if not token is None:
         logger('end','extract_average_trace',token)
-    return T-window[0],np.mean(X,axis=0),np.mean(dX,axis=0)
+    return T+window[0],np.mean(X,axis=0),np.mean(dX,axis=0)
 
 def logger(log_type, msg, token):
     if log_type.lower() == 'start':
@@ -204,17 +204,17 @@ def hyperpolarizing_current_steps_error(t,V,Iinj,Vref):
     return np.sum((V[idx,:]-Vref[idx,:])**2)
 
 def spike_shape_error(t,V,tp,window,token=None):
-    dt = t[1]-t[0]
-    dV = (V[:,2:] - V[:,:-2]) / (2*dt)
-    tavg,Vavg,dVavg = extract_average_trace(t,V,tp,interp_dt=1./resampling_frequency,token=token)
-    idx, = np.where((tavg>=window[0]) & (tavg<=window[1]))
-    return np.sum((Vavg[idx] - ephys_data['Vavg'][idx])**2) + 0.1*np.sum((dVavg[idx] - ephys_data['dVavg'][idx])**2)
-
-def spike_onset_error(t,V,tp,token=None):
-    return spike_shape_error(t,V,tp,[-0.5,-0.1],token)
-
-def spike_offset_error(t,V,tp,token=None):
-    return spike_shape_error(t,V,tp,[0.1,14],token)
+    if np.isscalar(window[0]):
+        window = [window]
+    m = min([w[0] for w in window])
+    M = max([w[1] for w in window])
+    tavg,Vavg,dVavg = extract_average_trace(t,V,tp,[m,M],interp_dt=1./resampling_frequency,token=token)
+    err = []
+    for w in window:
+        idx, = np.where((ephys_data['tavg']>=w[0]) & (ephys_data['tavg']<=w[1]))
+        jdx, = np.where((tavg>=w[0]) & (tavg<=w[1]))
+        err.append(np.sum((Vavg[jdx] - ephys_data['Vavg'][idx])**2) + 0.1*np.sum((dVavg[jdx] - ephys_data['dVavg'][idx])**2))
+    return err
 
 def isi_error(tp):
     err = None
@@ -301,9 +301,10 @@ def objectives_error(parameters):
         logger('end', 'extractAPHalfWidth', token)
         if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,width,token):
             measures['hyperpolarizing_current_steps'] = hyperpolarizing_current_steps_error(t,V,ephys_data['I_amplitudes'],ephys_data['V'])
-            measures['spike_onset'] = spike_onset_error(t,V,tp,token)
-            measures['spike_offset'] = spike_offset_error(t,V,tp,token)
             measures['isi'] = isi_error(tp)
+            err = spike_shape_error(t,V,tp,[[-0.5,-0.1],[0.1,14]],token)
+            measures['spike_onset'] = err[0]
+            measures['spike_offset'] = err[1]
 
     #import pylab as p
     #for i,v in enumerate(ephys_data['V']):
@@ -415,7 +416,8 @@ def optimize():
     ephys_data['tafter'] = ephys_data['t'][-1] - ephys_data['dur'] - ephys_data['tbefore']
     # find the average spike shape: this makes sense only for regular spiking cells
     tp = [ephys_data['tp'][str(i)] for i in range(ephys_data['V'].shape[0])]
-    ephys_data['tavg'],ephys_data['Vavg'],ephys_data['dVavg'] = extract_average_trace(ephys_data['t'],ephys_data['V'],tp,interp_dt=1./resampling_frequency)
+    ephys_data['tavg'],ephys_data['Vavg'],ephys_data['dVavg'] = extract_average_trace(ephys_data['t'],ephys_data['V'],
+                                                                                      tp,window=[-1,15],interp_dt=1./resampling_frequency)
     # find the current amplitudes
     j = int((ephys_data['tbefore']+ephys_data['dur'])/2/ephys_data['dt'])
     idx, = np.where(ephys_data['I'][:,j] <= 0)

@@ -251,12 +251,12 @@ def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
         m = np.mean(V[i,idx])
         s = np.std(V[i,idx])
         # number of spikes in the reference trace (ephys data)
-        ref_nspikes = len(np.where((ephys_data['tp'][i]>ton) & (ephys_data['tp'][i]<=toff))[0])
+        ref_nspikes = len(np.where((np.array(ephys_data['tp'][i])>ton) & (np.array(ephys_data['tp'][i])<=toff))[0])
         # number of spikes in the simulated trace, after stimulation onset: I consider also
         # the time after the stimulation offset because there should be no spikes there, i.e.
         # the neuron should go back to equilibrium. This also allows removing those situations
         # in which the neuron is tonically spiking when no current is injected.
-        nspikes = len(np.where(tp[i]>ton)[0])
+        nspikes = len(np.where(np.array(tp[i])>ton)[0])
         # spikes where there shouldn't be any
         if ref_nspikes == 0 and nspikes != 0:
             print('%d check_prerequistes: spikes where there shouldn\'t be any.' % token)
@@ -268,8 +268,8 @@ def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
             retval = False
             break
         # spike block?
-        elif ref_nspikes > 0 and nspikes > 0 and m > -40 and s < 1:
-            print('%d check_prerequistes: mean(voltage) > -40 and std(voltage) < 1.' % token)
+        elif ref_nspikes > 0 and nspikes > 0 and m > -40 and s < 3:
+            print('%d check_prerequistes: mean(voltage) > -40 and std(voltage) < 3.' % token)
             retval = False
             break
         if not width is None:

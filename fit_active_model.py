@@ -205,6 +205,7 @@ def hyperpolarizing_current_steps_error(t,V,Iinj,Vref):
     return np.sum((V[idx,:]-Vref[idx,:])**2)
 
 def spike_shape_error(t,V,tp,Vth,window,token=None):
+    flat_mean = lambda x: np.mean([z for y in x for z in y])
     logger('start','spike_shape_error',token)
     if np.isscalar(window[0]):
         window = [window]
@@ -212,17 +213,9 @@ def spike_shape_error(t,V,tp,Vth,window,token=None):
     M = max([w[1] for w in window])
     tavg,Vavg,dVavg = extract_average_trace(t,V,tp,[m,M],interp_dt=1./resampling_frequency,token=token)
     # the voltage threshold for the ephys data
-    ref_thresh = []
-    for v in ephys_data['Vth'].values():
-        if len(v) > 0:
-            ref_thresh.append(np.mean(v))
-    ref_thresh = np.mean(ref_thresh)
+    ref_thresh = flat_mean(ephys_data['Vth'])
     # the voltage threshold for the simulated data
-    thresh = []
-    for th in Vth:
-        if len(th) > 0:
-            thresh.append(np.mean(th))
-    thresh = np.mean(thresh)
+    thresh = flat_mean(Vth)
     err = []
     for w in window:
         idx, = np.where((ephys_data['tavg']>=w[0]) & (ephys_data['tavg']<=w[1]))

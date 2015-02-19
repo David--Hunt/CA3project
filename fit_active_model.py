@@ -203,17 +203,30 @@ def hyperpolarizing_current_steps_error(t,V,Iinj,Vref):
     idx, = np.where(Iinj <= 0)
     return np.sum((V[idx,:]-Vref[idx,:])**2)
 
-def spike_shape_error(t,V,tp,window,token=None):
+def spike_shape_error(t,V,tp,Vth,window,token=None):
     if np.isscalar(window[0]):
         window = [window]
     m = min([w[0] for w in window])
     M = max([w[1] for w in window])
     tavg,Vavg,dVavg = extract_average_trace(t,V,tp,[m,M],interp_dt=1./resampling_frequency,token=token)
+    # the voltage threshold for the ephys data
+    thresh = []
+    for v in ephys_data['Vth'].values():
+        if len(v) > 0:
+            thresh.append(np.mean(v))
+    thresh = np.mean(thresh)
     err = []
     for w in window:
         idx, = np.where((ephys_data['tavg']>=w[0]) & (ephys_data['tavg']<=w[1]))
         jdx, = np.where((tavg>=w[0]) & (tavg<=w[1]))
-        err.append(np.sum((Vavg[jdx] - ephys_data['Vavg'][idx])**2) + 0.1*np.sum((dVavg[jdx] - ephys_data['dVavg'][idx])**2))
+        err.append(
+            np.sum(
+                ( (Vavg[jdx]-np.mean(map(np.mean,Vth))) - (ephys_data['Vavg'][idx]-thresh) )**2
+                )
+            + 0.1*np.sum(
+                (dVavg[jdx] - ephys_data['dVavg'][idx])**2
+                )
+            )
     return err
 
 def isi_error(tp):
@@ -237,9 +250,13 @@ def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
     for i in range(n):
         m = np.mean(V[i,idx])
         s = np.std(V[i,idx])
-        # number of spikes in the reference trace (ephys data) and in the simulated one
+        # number of spikes in the reference trace (ephys data)
         ref_nspikes = len(np.where((ephys_data['tp'][i]>ton) & (ephys_data['tp'][i]<=toff))[0])
-        nspikes = len(np.where((tp[i]>ton) & (tp[i]<=toff))[0])
+        # number of spikes in the simulated trace, after stimulation onset: I consider also
+        # the time after the stimulation offset because there should be no spikes there, i.e.
+        # the neuron should go back to equilibrium. This also allows removing those situations
+        # in which the neuron is tonically spiking when no current is injected.
+        nspikes = len(np.where(tp[i]>ton)[0])
         # spikes where there shouldn't be any
         if ref_nspikes == 0 and nspikes != 0:
             print('%d check_prerequistes: spikes where there shouldn\'t be any.' % token)
@@ -296,13 +313,16 @@ def objectives_error(parameters):
                 'isi': 1e20}
 
     if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,token=token):
+        logger('start', 'extractAPThreshold', token)
+        tth,Vth = extractAPThreshold(t, V, threshold=0, tpeak=tp)
+        logger('end', 'extractAPThreshold', token)
         logger('start', 'extractAPHalfWidth', token)
-        Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=0, tpeak=tp, Vpeak=Vp, interp=False)
+        Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=0, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
         logger('end', 'extractAPHalfWidth', token)
         if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,width,token):
             measures['hyperpolarizing_current_steps'] = hyperpolarizing_current_steps_error(t,V,ephys_data['I_amplitudes'],ephys_data['V'])
             measures['isi'] = isi_error(tp)
-            err = spike_shape_error(t,V,tp,[[-0.5,-0.1],[0.1,14]],token)
+            err = spike_shape_error(t,V,tp,Vth,[[-0.5,-0.1],[0.1,14]],token)
             measures['spike_onset'] = err[0]
             measures['spike_offset'] = err[1]
 

@@ -9,7 +9,7 @@ import time
 import copy
 import CA3
 from CA3.utils import *
-from scipy.interpolate import interp1d,spline
+from scipy.interpolate import interp1d,UnivariateSpline
 from neuron import h
 from emoo import Emoo
 from emoo import mpi4py_loaded
@@ -151,7 +151,7 @@ def extract_average_trace(t,x,events,window,interp_dt=-1,token=None):
         Tint = np.arange(0,np.sum(np.abs(window)),interp_dt)
         Xint = np.zeros((n,len(Tint)))
         for i in range(n):
-            Xint[i,:] = spline(T, X[i,:], Tint)
+            Xint[i,:] = UnivariateSpline(T, X[i,:], k=3, s=0.5)(Tint)
         return extract_average_trace(Tint,Xint,
                                      [[Tint[i]] for i in np.argmax(Xint,axis=1)],
                                      [window[0]+offset, window[1]-offset],

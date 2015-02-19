@@ -120,8 +120,7 @@ def make_simplified_neuron(parameters):
     return ReducedNeuron(pars, with_axon=True, with_active=True)
 
 def extract_average_trace(t,x,events,window,interp_dt=-1,token=None):
-    if not token is None:
-        logger('start','extract_average_trace',token)
+    logger('start','extract_average_trace',token)
     if interp_dt > 0:
         offset = 0.2
         window = [float(window[0])-offset,float(window[1])+offset]
@@ -152,21 +151,23 @@ def extract_average_trace(t,x,events,window,interp_dt=-1,token=None):
         Xint = np.zeros((n,len(Tint)))
         for i in range(n):
             Xint[i,:] = UnivariateSpline(T, X[i,:], k=3, s=0.5)(Tint)
-        return extract_average_trace(Tint,Xint,
-                                     [[Tint[i]] for i in np.argmax(Xint,axis=1)],
-                                     [window[0]+offset, window[1]-offset],
-                                     interp_dt=-1,token=token)
-    if not token is None:
+        # the next few lines are just for debugging purposes: return extract_average_trace(...) is sufficient
+        Tint,Xint,dXint = extract_average_trace(Tint,Xint,
+                                                [[Tint[i]] for i in np.argmax(Xint,axis=1)],
+                                                [window[0]+offset, window[1]-offset],
+                                                interp_dt=-1,token=token)
         logger('end','extract_average_trace',token)
+        return Tint,Xint,dXint
+    logger('end','extract_average_trace',token)
     return T+window[0],np.mean(X,axis=0),np.mean(dX,axis=0)
 
 def logger(log_type, msg, token):
+    if token is None or not log_type.lower() in ('start','end'):
+        return
     if log_type.lower() == 'start':
         message = '%d STARTED %s @ %s.' % (token,msg,timestamp())
-    elif log_type.lower() == 'end':
-        message = '%d FINISHED %s @ %s.' % (token,msg,timestamp())
     else:
-        return
+        message = '%d FINISHED %s @ %s.' % (token,msg,timestamp())
     print(message)
     
 def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100, V0=-70, token=None):
@@ -204,16 +205,23 @@ def hyperpolarizing_current_steps_error(t,V,Iinj,Vref):
     return np.sum((V[idx,:]-Vref[idx,:])**2)
 
 def spike_shape_error(t,V,tp,Vth,window,token=None):
+    logger('start','spike_shape_error',token)
     if np.isscalar(window[0]):
         window = [window]
     m = min([w[0] for w in window])
     M = max([w[1] for w in window])
     tavg,Vavg,dVavg = extract_average_trace(t,V,tp,[m,M],interp_dt=1./resampling_frequency,token=token)
     # the voltage threshold for the ephys data
-    thresh = []
+    ref_thresh = []
     for v in ephys_data['Vth'].values():
         if len(v) > 0:
-            thresh.append(np.mean(v))
+            ref_thresh.append(np.mean(v))
+    ref_thresh = np.mean(ref_thresh)
+    # the voltage threshold for the simulated data
+    thresh = []
+    for th in Vth:
+        if len(th) > 0:
+            thresh.append(np.mean(th))
     thresh = np.mean(thresh)
     err = []
     for w in window:
@@ -221,12 +229,13 @@ def spike_shape_error(t,V,tp,Vth,window,token=None):
         jdx, = np.where((tavg>=w[0]) & (tavg<=w[1]))
         err.append(
             np.sum(
-                ( (Vavg[jdx]-np.mean(map(np.mean,Vth))) - (ephys_data['Vavg'][idx]-thresh) )**2
+                ( (Vavg[jdx]-thresh) - (ephys_data['Vavg'][idx]-ref_thresh) )**2
                 )
             + 0.1*np.sum(
                 (dVavg[jdx] - ephys_data['dVavg'][idx])**2
                 )
             )
+    logger('end','spike_shape_error',token)
     return err
 
 def isi_error(tp):
@@ -243,8 +252,7 @@ def isi_error(tp):
 
 def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
     retval = True
-    if not token is None:
-        logger('start','check_prerequisites',token)
+    logger('start','check_prerequisites',token)
     n = V.shape[0]
     idx, = np.where((t>toff-200) & (t<toff))
     for i in range(n):
@@ -286,8 +294,7 @@ def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
                     break
             if not retval:
                 break
-    if not token is None:
-        logger('end','check_prerequisites',token)
+    logger('end','check_prerequisites',token)
     return retval
 
 def objectives_error(parameters):

@@ -381,6 +381,10 @@ class SimplifiedNeuron (Neuron):
                     sec.gnabar_hh2 = self.parameters['nat']['gbar_ais'] * PSUM2_TO_SCM2
                 else:
                     sec.gnabar_hh2 = self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2
+        for mech in 'nat','kdr':
+            for k in 'gbar_distal','lambda':
+                if not k in self.parameters[mech]:
+                    return
         # exponentially decreasing sodium in the dendrites
         h.distance(sec=self.soma[0])
         for sec in it.chain(self.basal,self.proximal,self.distal):
@@ -801,7 +805,7 @@ def run_step(amplitude=0.12):
     # fast sodium current
     #parameters['nat'] = {'gbar_soma': 500, 'gbar_hillock': 5000, 'gbar_ais': 10000,
     #                     'half_dist': 50., 'lambda': 10., 'dend_scaling': 0.1}
-    parameters['nat'] = {'gbar_soma': 500, 'gbar_hillock': 5000, 'gbar_ais': 10000,
+    parameters['nat'] = {'gbar_soma': 50, 'gbar_hillock': 5000, 'gbar_ais': 10000,
                          'gbar_distal': 5, 'lambda': 50}
     # delayed rectifier potassium
     #parameters['kdr'] = {'gbar': 50, 'dend_scaling': 0.5}

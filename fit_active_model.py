@@ -23,60 +23,14 @@ ReducedNeuron = CA3.cells.SimplifiedNeuron
 # the list of objectives
 objectives = ['hyperpolarizing_current_steps','spike_onset','spike_offset','isi']
 
-# the variables and their lower and upper search bounds
-if False:
-    variables = [
-        ['Cm', 0.99, 1.01],                       # [uF/cm2] membrane capacitance (0.6,3)
-        ['Rm', 9.99e3, 10.01e3],                    # [Ohm cm2] membrane resistance (10e3,30e3)
-        ['El', -71., -69.],                    # [mV] reversal potential of leak conductance (-85,-50)
-        ['scaling', 0.49, 0.51],                  # [1] scaling of dendritic capacitance and membrane resistance (0.5,2)
-        ['nat_gbar_soma', 499., 501.],           # [pS/um2] (0,500)
-        ['nat_gbar_hillock', 4999., 5001.],      # [pS/um2] (0,20000)
-        ['nat_gbar_ais', 9999., 10001.],          # [pS/um2] (0,20000)
-        ['nat_half_dist', 49., 51.],           # [um] (0,500)
-        ['nat_lambda', 9.9, 10.1],              # [um] (1,500)
-        ['nat_dend_scaling', 0.09, 0.11],          # [1] (0,2)
-        ['kdr_gbar', 49., 151.],                # [pS/um2] (0,100)
-        ['kdr_dend_scaling', 0.49, 0.51]]          # [1] (0,2)
-
-if True:
-    variables = [
-        ['Cm', 0.6, 3.],                       # [uF/cm2] membrane capacitance (0.6,3)
-        ['Rm', 5e3, 30e3],                     # [Ohm cm2] membrane resistance (10e3,30e3)
-        ['El', -85., -50.],                    # [mV] reversal potential of leak conductance (-85,-50)
-        ['scaling', 0.3, 2.],                  # [1] scaling of dendritic capacitance and membrane resistance (0.5,2)
-        ['nat_gbar_soma', 0., 500.],           # [pS/um2] (0,500)
-        ['nat_gbar_hillock', 0., 20000.],      # [pS/um2] (0,20000)
-        ['nat_gbar_ais', 0., 20000.],          # [pS/um2] (0,20000)
-        ['nat_gbar_distal', 0., 100.],         # [pS/um2] (0,100)
-        ['nat_lambda', 1., 100.],              # [um] (1,500)
-        ['kdr_gbar_soma', 0., 100.],           # [pS/um2] (0,100)
-        ['kdr_gbar_distal', 0., 10.],          # [pS/um2] (0,10)
-        ['kdr_lambda', 1., 100.]]              # [um] (0,100)
-
-if False:
-    variables = [
-        ['Cm', 0.6, 3.],                       # [uF/cm2] membrane capacitance (0.6,3)
-        ['Rm', 10e3, 30e3],                    # [Ohm cm2] membrane resistance (10e3,30e3)
-        ['El', -85., -50.],                    # [mV] reversal potential of leak conductance (-85,-50)
-        ['scaling', 0.5, 2.],                  # [1] scaling of dendritic capacitance and membrane resistance (0.5,2)
-        ['nat_gbar_soma', 0., 500.],           # [pS/um2] (0,500)
-        ['nat_gbar_hillock', 0., 20000.],      # [pS/um2] (0,20000)
-        ['nat_gbar_ais', 0., 20000.],          # [pS/um2] (0,20000)
-        ['nat_half_dist', 0., 500.],           # [um] (0,500)
-        ['nat_lambda', 1., 500.],              # [um] (1,500)
-        ['nat_dend_scaling', 0., 2.],          # [1] (0,2)
-        ['kdr_gbar', 0., 100.],                # [pS/um2] (0,100)
-        ['kdr_dend_scaling', 0., 2.],          # [1] (0,2)
-        ['nap_gbar', 0., 5.],                  # [pS/um2] in the paper, 0 < gbar < 4.1
-        ['km_gbar', 0., 2.],                   # [pS/um2]
-        ['kahp_gbar', 0., 500.],               # [pS/um2]
-        ['kd_gbar', 0., 0.01],                 # [pS/um2]
-        ['kap_gbar', 0., 100.],                # [pS/um2]
-        ['ih_gbar_soma', 0., 0.1],             # [pS/um2]
-        ['ih_dend_scaling', 0., 10.],          # [1]
-        ['ih_half_dist', 0., 500.],            # [um]
-        ['ih_lambda', 1., 500.]]               # [um]
+# minimum set of variables to optimize
+variables = [
+    ['Cm', 0.6, 3.],                       # [uF/cm2] membrane capacitance (0.6,3)
+    ['Rm', 5e3, 30e3],                     # [Ohm cm2] membrane resistance (10e3,30e3)
+    ['El', -85., -50.],                    # [mV] reversal potential of leak conductance (-85,-50)
+    ['scaling', 0.3, 2.],                  # [1] scaling of dendritic capacitance and membrane resistance (0.5,2)
+    ['nat_gbar_soma', 0., 500.],           # [pS/um2] (0,500)
+    ['kdr_gbar_soma', 0., 100.]]           # [pS/um2] (0,100)
 
 # the neuron parameters that have been obtained by the previous
 # optimization of the passive properties
@@ -91,6 +45,8 @@ ephys_data = None
 resampling_frequency = 200 # [kHz]
 
 def make_simplified_neuron(parameters):
+    with_axon = False
+    with_active = True
     pars = copy.deepcopy(neuron_pars)
     for k,v in parameters.iteritems():
         if k == 'scaling':
@@ -107,17 +63,19 @@ def make_simplified_neuron(parameters):
                 pars[key][value] = v
             except:
                 pars[key] = {value: v}
-    # the passive properties of the axon are the same as the soma
-    pars['axon'] = pars['soma'].copy()
-    try:
-        pars['axon'].pop('L')
-    except:
-        pass
-    try:
-        pars['axon'].pop('diam')
-    except:
-        pass
-    return ReducedNeuron(pars, with_axon=True, with_active=True)
+    if 'nat_gbar_ais' in parameters and 'nat_gbar_hillock' in parameters:
+        with_axon = True
+        # the passive properties of the axon are the same as the soma
+        pars['axon'] = pars['soma'].copy()
+        try:
+            pars['axon'].pop('L')
+        except:
+            pass
+        try:
+            pars['axon'].pop('diam')
+        except:
+            pass
+    return ReducedNeuron(pars, with_axon, with_active)
 
 def extract_average_trace(t,x,events,window,interp_dt=-1,token=None):
     logger('start','extract_average_trace',token)
@@ -363,6 +321,7 @@ def optimize():
                         help='Initial value of the crossover parameter (default: 5)')
     parser.add_argument('--etac-end', default=50., type=float,
                         help='Final value of the crossover parameter (default: 50)')
+    parser.add_argument('--add', action='append')
     parser.add_argument('-o','--out-file', type=str, help='Output file name (default: same as morphology file)')
     parser.add_argument('-d','--data-file', type=str, help='Data file for fitting')
     args = parser.parse_args(args=sys.argv[2:])
@@ -382,6 +341,37 @@ def optimize():
     if not os.path.isfile(args.data_file):
         print('%s: no such file.' % args.data_file)
         sys.exit(2)
+
+    with_axon = False
+    if not args.add is None:
+        if args.add[0] == 'all':
+            args.add = ['axon','nat-dend','kdr-dend','nap','km','kahp','kd','kap','ih','ih-dend']
+        for opt in args.add:
+            if opt == 'axon':
+                variables.append(['nat_gbar_hillock', 0., 20000.])      # [pS/um2] (0,20000)
+                variables.append(['nat_gbar_ais', 0., 20000.])          # [pS/um2] (0,20000)
+                variables.append(['nat_gbar_distal', 0., 100.])         # [pS/um2] (0,100)
+            elif opt == 'nat-dend':
+                variables.append(['nat_lambda', 1., 100.])              # [um] (1,500)
+            elif opt == 'kdr-dend':
+                variables.append(['kdr_gbar_distal', 0., 10.])          # [pS/um2] (0,10)
+                variables.append(['kdr_lambda', 1., 100.])              # [um] (0,100)
+            elif opt == 'nap':
+                variables.append(['nap_gbar', 0., 5.])                  # [pS/um2] in the paper, 0 < gbar < 4.1
+            elif opt == 'km':
+                variables.append(['km_gbar', 0., 2.])                   # [pS/um2]
+            elif opt == 'kahp':
+                variables.append(['kahp_gbar', 0., 500.])               # [pS/um2]
+            elif opt == 'kd':
+                variables.append(['kd_gbar', 0., 0.01])                 # [pS/um2]
+            elif opt == 'kap':
+                variables.append(['kap_gbar', 0., 100.])                # [pS/um2]
+            elif opt == 'ih':
+                variables.append(['ih_gbar_soma', 0., 0.1])             # [pS/um2]
+            elif opt == 'ih-dend':
+                variables.append(['ih_dend_scaling', 0., 10.])          # [1]
+                variables.append(['ih_half_dist', 0., 500.])            # [um]
+                variables.append(['ih_lambda', 1., 500.])               # [um]
 
     # load the data relative to the optimization of the passive properties
     data = CA3.utils.h5.load_h5_file(args.filename)

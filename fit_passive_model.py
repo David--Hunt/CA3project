@@ -28,6 +28,9 @@ variables = [
     ['Ra_proximal', 100., 300.],  # 150, 300
     ['Ra_distal', 100., 1200.]]   # 500, 1200
 
+# the frequencies used in the computation of the transfer function
+tf_frequencies = np.array([0.5,1,2,5,10,20,50,100,200,500,1000])
+
 def make_detailed_neuron(filename, proximal_limit):
     # fixed parameters for the detailed neuron
     parameters = {'scaling': 1,
@@ -189,8 +192,7 @@ def impedance(neuron, amp=0.1, n_cycles=3, frequencies=np.array([0.1,0.2,0.5,1,2
 
 def impedance_error(pars):
     neuron = make_simplified_neuron(pars, detailed_neuron['cell'])
-    f = np.array([0.1,0.2,0.5,1,2,5,10,20,50,100,200,500,1000])
-    R,phi = impedance(neuron,frequencies=f)
+    R,phi = impedance(neuron,frequencies=tf_frequencies)
     R_err = np.sum((R-detailed_neuron['impedance'])**2)
     phi_err = np.sum((phi-detailed_neuron['phase'])**2)
     return R_err,phi_err
@@ -273,6 +275,8 @@ def optimize():
     parser.add_argument('-o','--out-file', type=str, help='Output file name (default: same as morphology file)')
     parser.add_argument('--optimize-length', action='store_true', help='Optimize also the lengths of the functional compartments')
     parser.add_argument('--optimize-impedance', action='store_true', help='Optimize the somatic impedance of the cell')
+    parser.add_argument('--with-length-error', action='store_true', help='Minimize the discrepancy between the length of ' + \
+                        'the original morphology and of the reduced one.')
     args = parser.parse_args(args=sys.argv[2:])
 
     if args.filename is None:
@@ -317,7 +321,7 @@ def optimize():
     if args.optimize_impedance:
         objectives.append('impedance')
         objectives.append('phase')
-        R,phi = impedance(n)
+        R,phi = impedance(n,frequencies=tf_frequencies)
         detailed_neuron['impedance'] = R
         detailed_neuron['phase'] = phi
 
@@ -332,7 +336,9 @@ def optimize():
         variables.append(['L_proximal', (1-fraction)*d, (1+fraction)*d])
         d = np.round(np.max(n.distal_distances) - np.max(n.proximal_distances))
         variables.append(['L_distal', (1-fraction)*d, (1+fraction)*d])
-        #objectives.append('length')
+
+    if args.with_length_error:
+        objectives.append('length')
 
     # initiate the Evolutionary Multiobjective Optimization
     global emoo

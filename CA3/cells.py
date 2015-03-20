@@ -556,6 +556,47 @@ class SimplifiedNeuron (Neuron):
             sec.insert(label)
             sec.__setattr__('g{0}bar_{0}'.format(label), self.parameters[label]['gbar'])
 
+class SingleCompartmentNeuron (SimplifiedNeuron):
+    def __init__(self, parameters, with_axon=False, with_active=True):
+        for sec in 'basal','proximal','distal':
+            try:
+                parameters['soma']['area'] += parameters[sec]['area']
+            except:
+                pass
+        SimplifiedNeuron.__init__(self, parameters, False, with_active)
+
+    @classmethod
+    def n_somatic_sections(cls):
+        return 1
+
+    @classmethod
+    def n_basal_sections(cls):
+        return 0
+
+    @classmethod
+    def n_proximal_sections(cls):
+        return 0
+
+    @classmethod
+    def n_distal_sections(cls):
+        return 0
+
+    @classmethod
+    def n_axonal_sections(cls):
+        return 0
+
+    def adjust_dimensions(self):
+        if 'area' in self.parameters['soma']:
+            self.parameters['soma']['diam'] = np.sqrt(self.parameters['soma']['area']/np.pi)
+            self.parameters['soma']['L'] = self.parameters['soma']['diam'] / self.n_somatic_sections()
+
+    def setup_topology(self):
+        self.soma[0].L = self.parameters['soma']['L']
+        self.soma[0].diam = self.parameters['soma']['diam']
+    
+    def connect_sections(self):
+        pass
+
 class AThornyNeuron (SimplifiedNeuron):
     def __init__(self, parameters, with_axon=True, with_active=True):
         SimplifiedNeuron.__init__(self, parameters, with_axon, with_active)
@@ -782,6 +823,43 @@ def neuron_factory(filename):
         raise Exception('Unknown neuron model: %s.' % data['neuron_type'])
     return cls(data['parameters'], data['has_axon'], data['has_active'])
 
+def run_step_single(amplitude=0.5):
+    parameters = {'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 10e3, 'area': 20000},
+                  'swc_filename': '../../morphologies/DH070613-1-.Edit.scaled.swc'}
+
+    # fast sodium current
+    parameters['nat'] = {'gbar_soma': 100}
+    # delayed rectifier potassium
+    parameters['kdr'] = {'gbar_soma': 50}
+    # persistent sodium
+    #parameters['nap'] = {'gbar': 1e-4}
+    # muscarinic potassium
+    #parameters['km'] = {'gbar': 20}
+    # ahp potassium
+    #parameters['kahp'] = {'gbar': 300}
+    # K-D
+    #parameters['kd'] = {'gbar': 1e-4}
+    # A-type potassium
+    #parameters['kap'] = {'gbar': 10}
+    # Ih current
+    #parameters['ih'] = {'gbar_soma': 1e-2}
+
+    n = SingleCompartmentNeuron(parameters)
+    #n.save_properties()
+    h.topology()
+    rec = make_voltage_recorders(n)
+    stim = h.IClamp(n.soma[0](0.5))
+    stim.delay = 0
+    stim.amp = amplitude
+    stim.dur = 500
+    run(tend=100,V0=-70)
+    import pylab as p
+    p.plot(rec['t'],rec['vsoma'],'k',label='Soma')
+    p.xlabel('Time (ms)')
+    p.ylabel('Membrane voltage (mV)')
+    p.legend(loc='best')
+    p.show()
+
 def run_step(amplitude=0.12):
     parameters = {'scaling': 0.5,
                   'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 10e3, 'L': 20., 'diam': 20.},
@@ -850,4 +928,4 @@ def run_step(amplitude=0.12):
     p.show()
 
 if __name__ == '__main__':
-    run_step()
+    run_step_single()

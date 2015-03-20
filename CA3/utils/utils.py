@@ -260,9 +260,18 @@ def make_voltage_recorders(n):
         rec[lbl] = h.Vector()
     rec['t'].record(h._ref_t)
     rec['vsoma'].record(n.soma[0](0.5)._ref_v)
-    rec['vproximal'].record(n.proximal[0](0.5)._ref_v)
-    rec['vdistal'].record(n.distal[0](0.5)._ref_v)
-    rec['vbasal'].record(n.basal[0](0.5)._ref_v)
+    try:
+        rec['vproximal'].record(n.proximal[0](0.5)._ref_v)
+    except:
+        rec.pop('vproximal')
+    try:
+        rec['vdistal'].record(n.distal[0](0.5)._ref_v)
+    except:
+        rec.pop('vdistal')
+    try:
+        rec['vbasal'].record(n.basal[0](0.5)._ref_v)
+    except:
+        rec.pop('vbasal')
     if n.has_axon:
         for i,lbl in enumerate(['vhillock','vais','vaxon']):
             rec[lbl] = h.Vector()

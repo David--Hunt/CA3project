@@ -28,9 +28,8 @@ variables = [
     ['Cm', 0.6, 3.],                       # [uF/cm2] membrane capacitance (0.6,3)
     ['Rm', 5e3, 30e3],                     # [Ohm cm2] membrane resistance (10e3,30e3)
     ['El', -85., -50.],                    # [mV] reversal potential of leak conductance (-85,-50)
-    ['scaling', 0.3, 2.],                  # [1] scaling of dendritic capacitance and membrane resistance (0.5,2)
     ['nat_gbar_soma', 0., 500.],           # [pS/um2] (0,500)
-    ['kdr_gbar_soma', 0., 100.]]           # [pS/um2] (0,100)
+    ['kdr_gbar_soma', 0., 500.]]           # [pS/um2] (0,100)
 
 # the neuron parameters that have been obtained by the previous
 # optimization of the passive properties
@@ -322,6 +321,7 @@ def optimize():
     parser.add_argument('--etac-end', default=50., type=float,
                         help='Final value of the crossover parameter (default: 50)')
     parser.add_argument('--add', action='append')
+    parser.add_argument('--single-compartment', action='store_true', help='Use a single-compartment neuron model')
     parser.add_argument('-o','--out-file', type=str, help='Output file name (default: same as morphology file)')
     parser.add_argument('-d','--data-file', type=str, help='Data file for fitting')
     args = parser.parse_args(args=sys.argv[2:])
@@ -373,6 +373,9 @@ def optimize():
                 variables.append(['ih_half_dist', 0., 500.])            # [um]
                 variables.append(['ih_lambda', 1., 500.])               # [um]
 
+    if not args.single_compartment:
+        variables.append(['scaling', 0.3, 2.])   # [1] scaling of dendritic capacitance and membrane resistance (0.5,2)
+
     # load the data relative to the optimization of the passive properties
     data = CA3.utils.h5.load_h5_file(args.filename)
 
@@ -401,7 +404,9 @@ def optimize():
 
     # which model to use
     global ReducedNeuron
-    if data['model_type'].lower() == 'thorny':
+    if args.single_compartment:
+        ReducedNeuron = CA3.cells.SingleCompartmentNeuron
+    elif data['model_type'].lower() == 'thorny':
         ReducedNeuron = CA3.cells.ThornyNeuron
     elif data['model_type'].lower() == 'athorny':
         ReducedNeuron = CA3.cells.AThornyNeuron

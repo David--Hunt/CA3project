@@ -16,8 +16,13 @@ from emoo import mpi4py_loaded
 if mpi4py_loaded:
     from mpi4py import MPI
     processor_name = MPI.Get_processor_name()
+try:
+    import pylab as p
+except:
+    pass
 
 DEBUG = False
+model_type = 'simplified'
 ReducedNeuron = CA3.cells.SimplifiedNeuron
 
 # the list of objectives
@@ -27,7 +32,8 @@ objectives = ['hyperpolarizing_current_steps','spike_onset','spike_offset','isi'
 variables = [
     ['Cm', 0.6, 3.],                       # [uF/cm2] membrane capacitance (0.6,3)
     ['Rm', 5e3, 30e3],                     # [Ohm cm2] membrane resistance (10e3,30e3)
-    ['El', -85., -50.],                    # [mV] reversal potential of leak conductance (-85,-50)
+    ['El', -70., -50.],                    # [mV] reversal potential of leak conductance (-85,-50)
+    ['vtraub', -65., -45.],                # [mV]
     ['nat_gbar_soma', 0., 500.],           # [pS/um2] (0,500)
     ['kdr_gbar_soma', 0., 500.]]           # [pS/um2] (0,100)
 
@@ -41,7 +47,9 @@ neuron_pars = {'soma': {'Ra': None, 'area': None},
 # the electrophysiological data used in the optimization
 ephys_data = None
 
-resampling_frequency = 200 # [kHz]
+resampling_frequency = 200. # [kHz]
+
+ap_threshold = 20. # [mV]
 
 def make_simplified_neuron(parameters):
     with_axon = False
@@ -55,6 +63,8 @@ def make_simplified_neuron(parameters):
                 pars[lbl][k] = v
         elif k in ('Cm','Rm'):
             pars['soma'][k] = v
+        elif k == 'vtraub':
+            pars[k] = v
         else:
             key = k.split('_')[0]
             value = '_'.join(k.split('_')[1:])
@@ -225,6 +235,11 @@ def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
             print('%d check_prerequistes: no spikes where there should be some.' % token)
             retval = False
             break
+        # too many spikes
+        elif nspikes > 3*ref_nspikes:
+            print('%d check_prerequistes: too many spikes (%d instead of %d).' % (token,nspikes,ref_nspikes))
+            retval = False
+            break
         # spike block?
         elif ref_nspikes > 0 and nspikes > 0 and m > -40 and s < 3:
             print('%d check_prerequistes: mean(voltage) > -40 and std(voltage) < 3.' % token)
@@ -261,7 +276,7 @@ def objectives_error(parameters):
                         ephys_data['tbefore'], ephys_data['tafter'], np.mean(ephys_data['V'][:,0]), token)
     # extract significant features from the traces
     logger('start', 'extractAPPeak', token)
-    tp,Vp = extractAPPeak(t, V, threshold=0, min_distance=1)
+    tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
     logger('end', 'extractAPPeak', token)
 
     measures = {'hyperpolarizing_current_steps': 1e20,
@@ -271,10 +286,10 @@ def objectives_error(parameters):
 
     if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,token=token):
         logger('start', 'extractAPThreshold', token)
-        tth,Vth = extractAPThreshold(t, V, threshold=0, tpeak=tp)
+        tth,Vth = extractAPThreshold(t, V, threshold=ap_threshold, tpeak=tp)
         logger('end', 'extractAPThreshold', token)
         logger('start', 'extractAPHalfWidth', token)
-        Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=0, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
+        Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=ap_threshold, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
         logger('end', 'extractAPHalfWidth', token)
         if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,width,token):
             measures['hyperpolarizing_current_steps'] = hyperpolarizing_current_steps_error(t,V,ephys_data['I_amplitudes'],ephys_data['V'])
@@ -403,12 +418,16 @@ def optimize():
             neuron_pars[lbl]['L'] = data['generations'][last][best,data['columns']['L_'+lbl]]
 
     # which model to use
+    global model_type
     global ReducedNeuron
     if args.single_compartment:
+        model_type = 'single_compartment'
         ReducedNeuron = CA3.cells.SingleCompartmentNeuron
     elif data['model_type'].lower() == 'thorny':
+        model_type = 'thorny'
         ReducedNeuron = CA3.cells.ThornyNeuron
     elif data['model_type'].lower() == 'athorny':
+        model_type = 'athorny'
         ReducedNeuron = CA3.cells.AThornyNeuron
     elif data['model_type'].lower() != 'simplified':
         print('The model type must be one of "simplified", "thorny" or "athorny".')
@@ -467,9 +486,82 @@ def optimize():
         CA3.utils.h5.save_h5_file(h5_filename, 'a', parameters={'etam_start': args.etam_start, 'etam_end': args.etam_end,
                                                                 'etac_start': args.etac_start, 'etac_end': args.etac_end,
                                                                 'p_m': args.pm},
-                                  objectives=objectives, variables=variables, model_type=data['model_type'],
+                                  objectives=objectives, variables=variables, model_type=model_type,
                                   h5_file=args.filename, ephys_file=args.data_file, ephys_data=ephys_data,
-                                  neuron_pars=neuron_pars)
+                                  neuron_pars=neuron_pars, ap_threshold=ap_threshold)
+
+def display_hyperpolarizing_current_steps(t, V, ephys_data):
+    p.figure()
+    for i in range(V.shape[0]):
+        if np.max(ephys_data['V'][i,:]) < -20:
+            p.plot(ephys_data['t'], ephys_data['V'][i,:],'k')
+            p.plot(t, V[i,:], 'r')
+    p.xlabel('Time (ms)')
+    p.ylabel('Membrane potential (mV)')
+    p.title('Hyperpolarizing current steps')
+
+def display_spike(t, V, ephys_data, wndw, title):
+    tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
+    tth,Vth = extractAPThreshold(t, V, threshold=ap_threshold, tpeak=tp)
+    tavg,Vavg,dVavg = extract_average_trace(t, V, tp, wndw, 1./resampling_frequency)
+
+    p.figure()
+    p.subplot(1,3,1)
+    p.plot(ephys_data['t'],ephys_data['V'][-1],'k')
+    p.plot(t, V[-1,:], 'r')
+    p.xlabel('Time (ms)')
+    p.ylabel('Membrane potential (mV)')
+    p.xlim([100,700])
+    p.xticks([100,300,500,700])
+
+    p.subplot(1,3,2)
+    p.plot(ephys_data['tavg'],ephys_data['Vavg']-np.mean([z for y in ephys_data['Vth'].values() for z in y]),'k')
+    p.plot(tavg, Vavg-np.mean([z for y in Vth for z in y]), 'r')
+    p.xlim(wndw)
+    p.xticks(np.linspace(wndw[0],wndw[1],3))
+    p.xlabel('Time (ms)')
+
+    p.title(title)
+    p.subplot(1,3,3)
+    p.plot(ephys_data['tavg'],ephys_data['dVavg'],'k')
+    p.plot(tavg, dVavg, 'r')
+    p.xlim(wndw)
+    p.xticks(np.linspace(wndw[0],wndw[1],3))
+    p.xlabel('Time (ms)')
+    p.ylabel('dV/dt (mV/ms)')
+
+def display_spike_onset(t, V, ephys_data):
+    display_spike(t, V, ephys_data, [-0.5,-0.1], 'Spike onset')
+
+def display_spike_offset(t, V, ephys_data):
+    display_spike(t, V, ephys_data, [0.1,14], 'Spike offset')
+
+def display_isi(t, V, ephys_data):
+    tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
+
+    err = None
+    for i in range(len(tp)):
+        n = min(len(tp[i]),len(ephys_data['tp'][i]))
+        print i,n
+        if n > 2:
+            if err is None:
+                err = 0
+            print(np.diff(tp[i][:n]))
+            print(np.diff(ephys_data['tp'][i][:n]))
+            err += np.sum((np.diff(tp[i][:n]) - np.diff(ephys_data['tp'][i][:n]))**2)
+    if err is None:
+        err = 1e10
+    print err
+
+    p.figure()
+    p.plot(ephys_data['t'],ephys_data['V'][-1],'k')
+    p.plot(ephys_data['tp'][-1],ephys_data['Vp'][-1],'ko')
+    p.plot(t, V[-1,:], 'r')
+    p.plot(tp[-1], Vp[-1], 'ro')
+    p.xlabel('Time (ms)')
+    p.ylabel('Membrane potential (mV)')
+    p.xlim([100,700])
+    p.xticks([100,300,500,700])
 
 def display():
     parser = arg.ArgumentParser(description='Fit the parameters of a reduced morphology to electrophysiological data')
@@ -481,22 +573,11 @@ def display():
 
     # load the data
     data = CA3.utils.h5.load_h5_file(args.filename)
-    print(data['neuron_pars']['distal']['L'])
-
-    # get the optimal parameters
-    ngen = len(data['generations'])
-    last = str(ngen-1)
-    err = np.zeros((data['generations'][last].shape[0],len(data['objectives'])))
-    norm_err = np.zeros((data['generations'][last].shape[0],len(data['objectives'])))
-    for i,obj in enumerate(data['objectives']):
-        err[:,i] = data['generations'][last][:,data['columns'][obj]]
-        norm_err[:,i] = (err[:,i] - min(err[:,i])) / (max(err[:,i]) - min(err[:,i]))
-    #best = np.argmin(np.sum(norm_err**2,axis=1))
-    best = np.argmin(err[:,1])
-    print('The best individual is #%d.' % best)
 
     # find the model type
-    if data['model_type'].lower() == 'thorny':
+    if data['model_type'].lower() == 'single_compartment' or args.filename == 'DH070313-.Edit.scaled_20150321-230759.h5':
+        ctor = CA3.cells.SingleCompartmentNeuron
+    elif data['model_type'].lower() == 'thorny':
         ctor = CA3.cells.ThornyNeuron
     elif data['model_type'].lower() == 'athorny':
         ctor = CA3.cells.AThornyNeuron
@@ -505,51 +586,74 @@ def display():
     else:
         print('Unknown model type [%s].' % data['model_type'])
 
-    # build the parameters dictionary
-    pars = copy.deepcopy(data['neuron_pars'])
-    parameters = {}
-    for v in data['variables']:
-        parameters[v[0]] = data['generations'][last][best,data['columns'][v[0]]]
-    for k,v in parameters.iteritems():
-        if k == 'scaling':
-            pars[k] = v
-        elif k == 'El':
-            for lbl in 'soma','proximal','distal','basal':
-                pars[lbl][k] = v
-        elif k in ('Cm','Rm'):
-            pars['soma'][k] = v
-        else:
-            key = k.split('_')[0]
-            value = '_'.join(k.split('_')[1:])
-            try:
-                pars[key][value] = v
-            except:
-                pars[key] = {value: v}
-    pars['axon'] = copy.deepcopy(pars['soma'])
-    try:
-        pars['axon'].pop('L')
-    except:
-        pass
-    try:
-        pars['axon'].pop('diam')
-    except:
-        pass
+    # find out whether the model contained active conductances and/or an axon
+    if 'nat_gbar_soma' in data['variables']:
+        with_active = True
+    else:
+        with_active = False
+    if 'nat_gbar_ais' in data['variables']:
+        with_axon = True
+    else:
+        with_axon = False
 
-    # construct the model
-    neuron = ctor(pars, with_axon=True, with_active=True)
+    # number of generations
+    ngen = len(data['generations'])
+    last = str(ngen-1)
+    # number of objectives
+    nobj = len(data['objectives'])
+    # number of individuals
+    ngenes = data['generations'][last].shape[0]
 
-    # simulate the injection of currents into the model
-    t,V = current_steps(neuron, data['ephys_data']['I_amplitudes'], data['ephys_data']['dt'][0],
-                        data['ephys_data']['dur'], data['ephys_data']['tbefore'],
-                        data['ephys_data']['tafter'], np.mean(data['ephys_data']['V'][:,0]))
+    err = np.zeros((ngenes,nobj))
+    norm_err = np.zeros((ngenes,nobj))
+    for i,obj in enumerate(data['objectives']):
+        err[:,i] = data['generations'][last][:,data['columns'][obj]]
+        norm_err[:,i] = (err[:,i] - min(err[:,i])) / (max(err[:,i]) - min(err[:,i]))
+        best = np.argmin(err[:,i])
+        print('The best individual for objective "%s" is #%d with error = %g.' % (obj,best,err[best,i]))
 
-    import pylab as p
-    for i in range(data['ephys_data']['V'].shape[0]):
-        p.plot(data['ephys_data']['t'],data['ephys_data']['V'][i,:],'k')
-        p.plot(t,V[i,:],'r')
-    p.xlabel('Time (ms)')
-    p.ylabel('Membrane voltage (mV)')
-    p.ylim([-90,60])
+        # build the parameters dictionary
+        pars = copy.deepcopy(data['neuron_pars'])
+        parameters = {}
+        for v in data['variables']:
+            parameters[v[0]] = data['generations'][last][best,data['columns'][v[0]]]
+        for k,v in parameters.iteritems():
+            if k == 'scaling':
+                pars[k] = v
+            elif k == 'El':
+                for lbl in 'soma','proximal','distal','basal':
+                    pars[lbl][k] = v
+            elif k in ('Cm','Rm'):
+                pars['soma'][k] = v
+            elif k == 'vtraub':
+                pars[k] = v
+            else:
+                key = k.split('_')[0]
+                value = '_'.join(k.split('_')[1:])
+                try:
+                    pars[key][value] = v
+                except:
+                    pars[key] = {value: v}
+        pars['axon'] = copy.deepcopy(pars['soma'])
+        try:
+            pars['axon'].pop('L')
+        except:
+            pass
+        try:
+            pars['axon'].pop('diam')
+        except:
+            pass
+
+        # construct the model
+        neuron = ctor(pars, with_axon, with_active)
+
+        # simulate the injection of currents into the model
+        t,V = current_steps(neuron, data['ephys_data']['I_amplitudes'], data['ephys_data']['dt'][0],
+                            data['ephys_data']['dur'], data['ephys_data']['tbefore'],
+                            data['ephys_data']['tafter'], np.mean(data['ephys_data']['V'][:,0]))
+
+        globals()['display_' + obj](t,V,data['ephys_data'])
+
     p.show()
 
 def help():

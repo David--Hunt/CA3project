@@ -372,6 +372,10 @@ class SimplifiedNeuron (Neuron):
             sec.insert('hh2')
             sec.ena = 55
             sec.ek = -90
+            try:
+                sec.vtraub_hh2 = self.parameters['vtraub']
+            except:
+                pass
             sec.gnabar_hh2 = self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2
             sec.gkbar_hh2 = self.parameters['kdr']['gbar_soma'] * PSUM2_TO_SCM2
             if self.has_axon:
@@ -391,6 +395,10 @@ class SimplifiedNeuron (Neuron):
             sec.insert('hh2')
             sec.ena = 55
             sec.ek = -90
+            try:
+                sec.vtraub_hh2 = self.parameters['vtraub']
+            except:
+                pass
             for seg in sec:
                 dst = h.distance(seg.x,sec=sec)
                 if sec in self.basal:

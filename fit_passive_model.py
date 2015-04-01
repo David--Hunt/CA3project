@@ -4,6 +4,7 @@ import os
 import sys
 import CA3
 from CA3.utils import timestamp
+from CA3.utils.graphics import *
 import numpy as np
 import argparse as arg
 import itertools as it
@@ -14,6 +15,11 @@ from emoo import mpi4py_loaded
 if mpi4py_loaded:
     from mpi4py import MPI
     processor_name = MPI.Get_processor_name()
+try:
+    import matplotlib.pyplot as p
+    set_rc_defaults()
+except:
+    pass
 
 DEBUG = False
 ReducedNeuron = CA3.cells.SimplifiedNeuron
@@ -161,6 +167,7 @@ def voltage_deflection_error(pars):
     return err
 
 def impedance(neuron, amp=0.1, n_cycles=3, frequencies=np.array([0.1,0.2,0.5,1,2,5,10,20,50,100,200,500,1000])):
+    frequencies = np.array([float(f) for f in frequencies])
     stim = h.SineClamp(neuron.soma[0](0.5))
     stim.amp = amp
     stim.delay = 0
@@ -442,50 +449,61 @@ def display():
     tex_file = os.path.basename(args.filename)[:-3] + '.tex'
     import pylab as p
     n = len(data['objectives'])
-    if n == 3:
-        r = 1
-        c = 3
-    elif n == 4:
-        r = 2
-        c = 3
-    p.figure(figsize=(12,5*r),dpi=300)
+    tot = n*(n-1)/2
+    c = 3
+    r = int(np.ceil(float(tot)/c))
+    p.figure(figsize=(c*3,r*3))
     subp = 1
     for i in range(n):
         for j in range(i+1,n):
-            p.subplot(r,c,subp)
-            p.plot(norm_err[:,i],norm_err[:,j],'ko')
-            p.plot(norm_err[best,i],norm_err[best,j],'rs')
+            ax = make_axes(r,c,subp,offset=[0.1,0.2],spacing=0.1)
+            p.plot(norm_err[:,i],norm_err[:,j],'k.',markersize=2)
+            p.plot(norm_err[best,i],norm_err[best,j],'ro',markersize=4)
             p.axis([-0.05,1,-0.05,1])
             p.xlabel('Normalized %s error' % data['objectives'][i].replace('_',' '))
             p.ylabel('Normalized %s error' % data['objectives'][j].replace('_',' '))
+            p.xticks([0,0.5,1])
+            p.yticks([0,0.5,1])
+            remove_border()
             subp += 1
     p.savefig(base_dir + '/errors.pdf')
-    p.figure(figsize=(6,4),dpi=300)
-    p.plot(detailed['distances'][:10:-1],detailed['voltages'][:10:-1],'k.',label='Detailed model')
-    p.plot(simplified['distances'],simplified['voltages'],'ro',label='Reduced model')
+
+    p.figure(figsize=(6,4))
+    p.axes([0.15,0.2,0.75,0.7])
+    p.plot(detailed['distances'][:10:-1],detailed['voltages'][:10:-1],'k.',markersize=2,label='Detailed model')
+    p.plot(simplified['distances'],simplified['voltages'],'ro',markersize=5,label='Reduced model')
     p.xlabel('Distance to soma (um)')
     p.ylabel('Voltage (mV)')
-    p.grid('off')
-    p.legend(loc='lower right')
+    vmin = np.floor(np.min([np.min(simplified['voltages']),np.min(detailed['voltages'])]))
+    vmax = np.ceil(np.max([np.max(simplified['voltages']),np.max(detailed['voltages'])]))
+    dv = np.round((vmax - vmin)/4)
+    p.yticks(np.arange(vmin,vmax+dv/2,dv))
+    remove_border()
     p.savefig(base_dir + '/voltage_deflection.pdf')
-    p.figure(figsize=(6,4),dpi=300)
-    ax = p.subplot(2,1,1)
+
+    p.figure(figsize=(6,5))
+    p.axes([0.15,0.6,0.75,0.35])
     p.semilogx(frequencies,detailed['impedance'],'k')
     p.semilogx(frequencies,simplified['impedance'],'r')
-    p.grid('off')
+    remove_border()
+    p.yticks([0,20,40,60,80])
     p.ylabel('Impedance (MOhm)')
-    p.subplot(2,1,2,sharex=ax)
+    p.axes([0.15,0.125,0.75,0.35])
     p.semilogx(frequencies,detailed['phase'],'k',label='Detailed model')
     p.semilogx(frequencies,simplified['phase'],'r',label='Reduced model')
     p.legend(loc='best')
+    p.yticks([-1.6,-1.2,-0.8,-0.4,0])
     p.xlabel('Frequency (Hz)')
     p.ylabel('Phase (rad)')
-    p.grid('off')
+    remove_border()
     p.savefig(base_dir + '/impedance.pdf')
+
+    # LaTeX generation
     with open(base_dir + '/' + tex_file, 'w') as fid:
         fid.write('\\documentclass[11pt]{scrartcl}\n')
         fid.write('\\usepackage{graphicx}\n')
         fid.write('\\usepackage[squaren]{SIunits}\n')
+        fid.write('\\usepackage[a4paper,margin=0.5in]{geometry}')
         fid.write('\\begin{document}\n')
         fid.write('\\section*{Morphology reduction summary}\n')
         fid.write('\n\\noindent ')
@@ -553,13 +571,13 @@ def display():
         fid.write('\n')
         fid.write('\\begin{figure}[htb]\n')
         fid.write('\\centering\n')
-        fid.write('\\includegraphics[width=\\textwidth]{%s/voltage_deflection.pdf}\n' % base_dir)
+        fid.write('\\includegraphics{%s/voltage_deflection.pdf}\n' % base_dir)
         fid.write('\\caption{Voltage deflection error}\n')
         fid.write('\\end{figure}\n')
         fid.write('\n')
         fid.write('\\begin{figure}[htb]\n')
         fid.write('\\centering\n')
-        fid.write('\\includegraphics[width=\\textwidth]{%s/impedance.pdf}\n' % base_dir)
+        fid.write('\\includegraphics{%s/impedance.pdf}\n' % base_dir)
         fid.write('\\caption{Impedance and phase error}\n')
         fid.write('\\end{figure}\n')
         fid.write('\\end{document}\n')

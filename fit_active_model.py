@@ -9,6 +9,7 @@ import time
 import copy
 import CA3
 from CA3.utils import *
+from CA3.utils.graphics import *
 from scipy.interpolate import interp1d,UnivariateSpline
 from neuron import h
 from emoo import Emoo
@@ -17,7 +18,8 @@ if mpi4py_loaded:
     from mpi4py import MPI
     processor_name = MPI.Get_processor_name()
 try:
-    import pylab as p
+    import matplotlib.pyplot as p
+    set_rc_defaults()
 except:
     pass
 
@@ -26,7 +28,7 @@ model_type = 'simplified'
 ReducedNeuron = CA3.cells.SimplifiedNeuron
 
 # the list of objectives
-objectives = ['hyperpolarizing_current_steps','spike_onset','spike_offset','isi']
+objectives = []
 
 # minimum set of variables to optimize
 variables = [
@@ -49,7 +51,7 @@ ephys_data = None
 
 resampling_frequency = 200. # [kHz]
 
-ap_threshold = 20. # [mV]
+ap_threshold = -20. # [mV]
 
 def make_simplified_neuron(parameters):
     with_axon = False
@@ -279,10 +281,9 @@ def objectives_error(parameters):
     tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
     logger('end', 'extractAPPeak', token)
 
-    measures = {'hyperpolarizing_current_steps': 1e20,
-                'spike_onset': 1e20,
-                'spike_offset': 1e20,
-                'isi': 1e20}
+    measures = {}
+    for obj in objectives:
+        measures[obj] = 1e20
 
     if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,token=token):
         logger('start', 'extractAPThreshold', token)
@@ -292,11 +293,16 @@ def objectives_error(parameters):
         Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=ap_threshold, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
         logger('end', 'extractAPHalfWidth', token)
         if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,width,token):
-            measures['hyperpolarizing_current_steps'] = hyperpolarizing_current_steps_error(t,V,ephys_data['I_amplitudes'],ephys_data['V'])
-            measures['isi'] = isi_error(tp)
-            err = spike_shape_error(t,V,tp,Vth,[[-0.5,-0.1],[0.1,14]],token)
-            measures['spike_onset'] = err[0]
-            measures['spike_offset'] = err[1]
+            if 'hyperpolarizing_current_steps' in objectives:
+                measures['hyperpolarizing_current_steps'] = hyperpolarizing_current_steps_error(t,V,ephys_data['I_amplitudes'],ephys_data['V'])
+            if 'isi' in objectives:
+                measures['isi'] = isi_error(tp)
+            if 'spike_onset' in objectives or 'spike_offset' in objectives:
+                err = spike_shape_error(t,V,tp,Vth,[[-0.5,-0.1],[0.1,14]],token)
+                if 'spike_onset' in objectives:
+                    measures['spike_onset'] = err[0]
+                if 'spike_offset' in objectives:
+                    measures['spike_offset'] = err[1]
 
     #import pylab as p
     #for i,v in enumerate(ephys_data['V']):
@@ -335,7 +341,10 @@ def optimize():
                         help='Initial value of the crossover parameter (default: 5)')
     parser.add_argument('--etac-end', default=50., type=float,
                         help='Final value of the crossover parameter (default: 50)')
-    parser.add_argument('--add', action='append')
+    parser.add_argument('--add', action='append', help='List of ion channels to add to the optimization. ' +
+                        'Available options are axon, nat-dend, kdr-dend, nap, km, kahp, kd, kap, ih and ih-dend')
+    parser.add_argument('--optimize', action='append', help='List of objectives to be optimized. ' +
+                        'Available options are hyperpolarizing_current_steps, spike_onset, spike_offset and isi')
     parser.add_argument('--single-compartment', action='store_true', help='Use a single-compartment neuron model')
     parser.add_argument('-o','--out-file', type=str, help='Output file name (default: same as morphology file)')
     parser.add_argument('-d','--data-file', type=str, help='Data file for fitting')
@@ -356,6 +365,16 @@ def optimize():
     if not os.path.isfile(args.data_file):
         print('%s: no such file.' % args.data_file)
         sys.exit(2)
+
+    if args.optimize is None:
+        print('You must specify at least one function to optimize.')
+        sys.exit(3)
+    global objectives
+    if args.optimize[0] == 'all':
+        objectives = ['hyperpolarizing_current_steps','spike_onset','spike_offset','isi']
+    else:
+        for cost in args.optimize:
+            objectives.append(cost)
 
     with_axon = False
     if not args.add is None:
@@ -457,8 +476,10 @@ def optimize():
     idx, = np.where(ephys_data['I'][:,j] <= 0)
     # take only the current amplitudes <= 0 and the largest injected current
     ephys_data['I_amplitudes'],idx = np.unique(ephys_data['I'][idx,j] * 1e-3, return_index=True)
-    ephys_data['I_amplitudes'] = np.append(ephys_data['I_amplitudes'], ephys_data['I'][-1,j]*1e-3)
-    idx = np.append(idx, ephys_data['I'].shape[0]-1)
+    if len(objectives) > 1 or objectives[0] != 'hyperpolarizing_current_steps':
+        # ... only if we're optimizing also spiking properties
+        ephys_data['I_amplitudes'] = np.append(ephys_data['I_amplitudes'], ephys_data['I'][-1,j]*1e-3)
+        idx = np.append(idx, ephys_data['I'].shape[0]-1)
     ephys_data['V'] = ephys_data['V'][idx,:]
     ephys_data['I'] = ephys_data['I'][idx,:]
     n = len(ephys_data['I_amplitudes'])
@@ -491,44 +512,55 @@ def optimize():
                                   neuron_pars=neuron_pars, ap_threshold=ap_threshold)
 
 def display_hyperpolarizing_current_steps(t, V, ephys_data):
-    p.figure()
+    p.figure(figsize=(5,3))
+    p.axes([0.15,0.2,0.75,0.7])
     for i in range(V.shape[0]):
         if np.max(ephys_data['V'][i,:]) < -20:
-            p.plot(ephys_data['t'], ephys_data['V'][i,:],'k')
-            p.plot(t, V[i,:], 'r')
+            p.plot(ephys_data['t'][::10], ephys_data['V'][i,::10],'k')
+            p.plot(t[::10], V[i,::10], 'r')
+    p.yticks(np.floor(np.arange(p.ylim()[0],p.ylim()[1]+1,10)))
     p.xlabel('Time (ms)')
     p.ylabel('Membrane potential (mV)')
     p.title('Hyperpolarizing current steps')
+    remove_border()
 
 def display_spike(t, V, ephys_data, wndw, title):
     tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
     tth,Vth = extractAPThreshold(t, V, threshold=ap_threshold, tpeak=tp)
     tavg,Vavg,dVavg = extract_average_trace(t, V, tp, wndw, 1./resampling_frequency)
-
-    p.figure()
-    p.subplot(1,3,1)
+    p.figure(figsize=(7,3))
+    p.axes([0.1,0.2,0.225,0.7])
     p.plot(ephys_data['t'],ephys_data['V'][-1],'k')
     p.plot(t, V[-1,:], 'r')
     p.xlabel('Time (ms)')
-    p.ylabel('Membrane potential (mV)')
-    p.xlim([100,700])
+    p.ylabel('Vm (mV)')
+    p.axis([100,700,-80,60])
     p.xticks([100,300,500,700])
+    p.yticks([-80,-40,0,40])
+    remove_border()
 
-    p.subplot(1,3,2)
+    p.axes([0.4,0.2,0.225,0.7])
     p.plot(ephys_data['tavg'],ephys_data['Vavg']-np.mean([z for y in ephys_data['Vth'].values() for z in y]),'k')
     p.plot(tavg, Vavg-np.mean([z for y in Vth for z in y]), 'r')
+    p.plot(wndw,[0,0],'--',color=[.6,.6,.6])
     p.xlim(wndw)
+    p.ylim([-20,100])
     p.xticks(np.linspace(wndw[0],wndw[1],3))
+    p.yticks([-20,20,60,100])
     p.xlabel('Time (ms)')
-
     p.title(title)
-    p.subplot(1,3,3)
+    remove_border()
+
+    p.axes([0.75,0.2,0.2,0.7])
     p.plot(ephys_data['tavg'],ephys_data['dVavg'],'k')
     p.plot(tavg, dVavg, 'r')
     p.xlim(wndw)
+    p.ylim([-200,500])
     p.xticks(np.linspace(wndw[0],wndw[1],3))
+    p.yticks([-200,0,200,400])
     p.xlabel('Time (ms)')
-    p.ylabel('dV/dt (mV/ms)')
+    p.ylabel('dVm/dt (mV/ms)')
+    remove_border()
 
 def display_spike_onset(t, V, ephys_data):
     display_spike(t, V, ephys_data, [-0.5,-0.1], 'Spike onset')
@@ -538,31 +570,19 @@ def display_spike_offset(t, V, ephys_data):
 
 def display_isi(t, V, ephys_data):
     tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
-
-    err = None
-    for i in range(len(tp)):
-        n = min(len(tp[i]),len(ephys_data['tp'][i]))
-        print i,n
-        if n > 2:
-            if err is None:
-                err = 0
-            print(np.diff(tp[i][:n]))
-            print(np.diff(ephys_data['tp'][i][:n]))
-            err += np.sum((np.diff(tp[i][:n]) - np.diff(ephys_data['tp'][i][:n]))**2)
-    if err is None:
-        err = 1e10
-    print err
-
-    p.figure()
+    p.figure(figsize=(5,3))
+    p.axes([0.15,0.2,0.75,0.7])
     p.plot(ephys_data['t'],ephys_data['V'][-1],'k')
-    p.plot(ephys_data['tp'][-1],ephys_data['Vp'][-1],'ko')
+    p.plot(ephys_data['tp']['0004'],ephys_data['Vp']['0004'],'ko',markersize=4)
     p.plot(t, V[-1,:], 'r')
-    p.plot(tp[-1], Vp[-1], 'ro')
+    p.plot(tp[-1], Vp[-1], 'ro',markersize=4)
     p.xlabel('Time (ms)')
     p.ylabel('Membrane potential (mV)')
-    p.xlim([100,700])
+    p.axis([100,700,-80,60])
     p.xticks([100,300,500,700])
-
+    p.yticks([-80,-40,0,40])
+    remove_border()
+    
 def display():
     parser = arg.ArgumentParser(description='Fit the parameters of a reduced morphology to electrophysiological data')
     parser.add_argument('filename', type=str, action='store', help='Path of the file containing the morphology')
@@ -571,11 +591,15 @@ def display():
         print('%s: no such file.' % args.filename)
         sys.exit(1)
 
+    # temporary files will be stored here
+    base_dir = '/tmp'
+
     # load the data
     data = CA3.utils.h5.load_h5_file(args.filename)
 
     # find the model type
-    if data['model_type'].lower() == 'single_compartment' or args.filename == 'DH070313-.Edit.scaled_20150321-230759.h5':
+    if data['model_type'].lower() == 'single_compartment' or \
+            os.path.basename(args.filename) == 'DH070313-.Edit.scaled_20150321-230759.h5':
         ctor = CA3.cells.SingleCompartmentNeuron
     elif data['model_type'].lower() == 'thorny':
         ctor = CA3.cells.ThornyNeuron
@@ -603,6 +627,61 @@ def display():
     nobj = len(data['objectives'])
     # number of individuals
     ngenes = data['generations'][last].shape[0]
+ 
+    # plot the evolution of the optimization variables
+    nbins = 300
+    nvar = len(data['variables'])
+    c = 3
+    r = np.ceil(float(nvar)/c)
+    #offset = 0.1
+    #dx = 0.1
+    #dy = 0.1
+    #w = (1 - 1.5*offset - dx*(n-1))/n
+    #h = (1 - 1.5*offset - dy*(m-1))/m
+    p.figure(figsize=(c*3,r*3))
+    for i,v in enumerate(data['variables']):
+        var = np.zeros((nbins,ngen))
+        for j in range(ngen):
+            var[:,j],edges = np.histogram(data['generations']['%d'%j][:,data['columns'][v[0]]], bins=nbins, range=[float(v[1]),float(v[2])])
+        tmp = data['generations']['%d'%(ngen-1)][:,data['columns'][v[0]]]
+        ax = make_axes(r,c,i+1)
+        if edges[-1] > 1000:
+            p.imshow(var, extent=[1,ngen,edges[0]*1e-3,edges[-1]*1e-3], aspect=ngen/(edges[-1]-edges[0])*1e3,
+                     origin='lower', cmap=p.get_cmap('Greys'), vmax=(np.min(var)+np.max(var))/2, vmin=np.min(var))
+            p.ylabel(v[0] + ' (1e3)')
+            p.yticks(np.linspace(edges[0],edges[-1],5)*1e-3)
+        else:
+            p.imshow(var/np.max(var), extent=[1,ngen,edges[0],edges[-1]], aspect=ngen/(edges[-1]-edges[0]),
+                     origin='lower', cmap=p.get_cmap('Greys'), vmax=(np.min(var)+np.max(var))/2, vmin=np.min(var))
+            p.ylabel(v[0])
+            p.yticks(np.linspace(edges[0],edges[-1],5))
+        p.xticks(np.arange(0,ngen+1,100))
+        p.xlabel('Generation #')
+        remove_border()
+    p.savefig(base_dir + '/variables.pdf')
+
+    # plot the trade-offs between all possible error pairs at the last generation
+    err = np.zeros((nobj,ngen,ngenes))
+    for i,obj in enumerate(data['objectives']):
+        for j in range(ngen):
+            err[i,j,:] = data['generations']['%d'%j][:,data['columns'][obj]]
+    tot = nobj*(nobj-1)/2
+    c = 3
+    r = np.ceil(tot/c)
+    subp = 1
+    p.figure(figsize=(c*3,r*3))
+    for i in range(nobj):
+        for j in range(i+1,nobj):
+            idx, = np.where((err[i,-1,:] < 1e10) & (err[j,-1,:] < 1e10))
+            ax = make_axes(r,c,subp)
+            p.plot(err[i,-1,idx]*1e-3,err[j,-1,idx]*1e-3,'k.',markersize=2)
+            p.xlabel(data['objectives'][i].replace('_',' ') + ' (1e3)')
+            p.ylabel(data['objectives'][j].replace('_',' ') + ' (1e3)')
+            p.xticks([0,p.xlim()[1]])
+            p.yticks([0,p.ylim()[1]])
+            remove_border()
+            subp += 1
+    p.savefig(base_dir + '/errors.pdf')
 
     err = np.zeros((ngenes,nobj))
     norm_err = np.zeros((ngenes,nobj))
@@ -611,7 +690,6 @@ def display():
         norm_err[:,i] = (err[:,i] - min(err[:,i])) / (max(err[:,i]) - min(err[:,i]))
         best = np.argmin(err[:,i])
         print('The best individual for objective "%s" is #%d with error = %g.' % (obj,best,err[best,i]))
-
         # build the parameters dictionary
         pars = copy.deepcopy(data['neuron_pars'])
         parameters = {}
@@ -653,8 +731,100 @@ def display():
                             data['ephys_data']['tafter'], np.mean(data['ephys_data']['V'][:,0]))
 
         globals()['display_' + obj](t,V,data['ephys_data'])
+        p.savefig(base_dir + '/' + obj + '.pdf')
 
-    p.show()
+    # LaTeX generation
+    tex_file = os.path.basename(args.filename)[:-3] + '.tex'
+    with open(base_dir + '/' + tex_file, 'w') as fid:
+        fid.write('\\documentclass[11pt]{scrartcl}\n')
+        fid.write('\\usepackage{graphicx}\n')
+        fid.write('\\usepackage[squaren]{SIunits}\n')
+        fid.write('\\usepackage[a4paper,margin=0.5in]{geometry}')
+        fid.write('\\begin{document}\n')
+        fid.write('\\section*{Active model fit summary}\n')
+        fid.write('\n\\noindent ')
+        fid.write('Filename: %s.\n' % os.path.basename(args.filename).replace('_','\_'))
+        fid.write('\n\\noindent ')
+        fid.write('Passive properties file: %s.\n' % os.path.basename(data['h5_file']).replace('_','\_'))
+        fid.write('\n\\noindent ')
+        if args.filename != 'DH070313-.Edit.scaled_20150321-230759.h5':
+            fid.write('Model type: %s.\n' % data['model_type'].replace('_',' '))
+        else:
+            fid.write('Model type: single compartment.\n')
+        fid.write('\n\\noindent ')
+        fid.write('Objectives:')
+        for obj in data['objectives']:
+            fid.write(' ' + obj.replace('_',' '))
+            if obj != data['objectives'][-1]:
+                fid.write(',')
+        fid.write('.\n')
+        fid.write('\n\\noindent ')
+        fid.write('Optimization variables:')
+        for var in data['variables']:
+            fid.write(' ' + var[0].replace('_','\_'))
+            if var[0] != data['variables'][-1][0]:
+                fid.write(',')
+        fid.write('.\n')
+        fid.write('\n\\noindent ')
+        fid.write('Number of generations: %s.\n' % ngen)
+        fid.write('\n\\noindent ')
+        fid.write('Number of organisms: %s.\n' % ngenes)
+        fid.write('\n\\noindent ')
+        fid.write('Optimization parameters: $\\eta_c^0=%g$, $\\eta_c^{\mathrm{end}}=%g$, $\\eta_m^0=%g$, $\\eta_m^{\mathrm{end}}=%g$, $p_m=%g$.\n' % 
+                  (data['parameters']['etac_start'],data['parameters']['etac_end'],
+                   data['parameters']['etam_start'],data['parameters']['etam_end'],data['parameters']['p_m']))
+        #fid.write('\\subsection*{Parameters of one good solution}')
+        #fid.write('\\begin{table}[h!!]\n')
+        #fid.write('\\centering\n')
+        #fid.write('\\begin{tabular}{|l|ccc|}\n')
+        #fid.write('\\hline\n')
+        #fid.write('\\textbf{Functional section} & \\textbf{Length} & \\textbf{Diameter} & \\textbf{Axial resistance} \\\\\n')
+        #fid.write('\\hline\n')
+        #fid.write('Soma & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
+        #          (L_soma,L_soma,Ra_soma))
+        #n = ReducedNeuron.n_basal_sections()
+        #fid.write('Basal dendrites (%d) & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
+        #          (n,round(L_basal),round(diam_basal/n),round(Ra_basal)))
+        #n = ReducedNeuron.n_proximal_sections()
+        #fid.write('Proximal apical dendrites (%d) & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
+        #          (n,round(L_proximal),round(diam_proximal/n),round(Ra_proximal)))
+        #n = ReducedNeuron.n_distal_sections()
+        #fid.write('Distal apical dendrites (%d) & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
+        #          (n,round(L_distal),round(diam_distal/n),round(Ra_distal)))
+        #fid.write('\\hline\n')
+        #fid.write('\\end{tabular}\n')
+        #fid.write('\\caption{Reduced model parameters.}\n')
+        #fid.write('\\end{table}\n')
+        #fid.write('\n')
+        fid.write('\\subsection*{Variables}')
+        fid.write('\\begin{figure}[htb]\n')
+        fid.write('\\centering\n')
+        fid.write('\\includegraphics[width=\\textwidth]{%s/variables.pdf}\n' % base_dir)
+        fid.write('\\caption{Variables.}\n')
+        fid.write('\\end{figure}\n')
+        fid.write('\n')
+        fid.write('\\subsection*{Errors}')
+        fid.write('\\begin{figure}[htb]\n')
+        fid.write('\\centering\n')
+        fid.write('\\includegraphics[width=\\textwidth]{%s/errors.pdf}\n' % base_dir)
+        fid.write('\\caption{Trade-offs between objectives at the last generation: ')
+        fid.write('each black dot indicates a solution.}\n')
+        fid.write('\\end{figure}\n')
+        fid.write('\n')
+        fid.write('\\subsection*{Cost functions}')
+        for obj in data['objectives']:
+            fid.write('\\begin{figure}[htb]\n')
+            fid.write('\\centering\n')
+            fid.write('\\includegraphics{%s/%s.pdf}\n' % (base_dir,obj))
+            fid.write('\\caption{%s%s error}\n' % (obj[0].upper(), obj[1:].replace('_',' ')))
+            fid.write('\\end{figure}\n')
+            fid.write('\n')
+        fid.write('\\end{document}\n')
+    os.system('pdflatex ' + base_dir + '/' + tex_file)
+    os.remove(base_dir + '/' + tex_file)
+    os.remove(tex_file[:-4] + '.aux')
+    os.remove(tex_file[:-4] + '.log')
+
 
 def help():
     print('This script optimizes the active properties of a reduced morphology.')

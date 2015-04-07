@@ -35,7 +35,6 @@ variables = [
     ['Cm', 0.6, 3.],                       # [uF/cm2] membrane capacitance (0.6,3)
     ['Rm', 5e3, 30e3],                     # [Ohm cm2] membrane resistance (10e3,30e3)
     ['El', -70., -50.],                    # [mV] reversal potential of leak conductance (-85,-50)
-    ['vtraub', -65., -45.],                # [mV]
     ['nat_gbar_soma', 0., 500.],           # [pS/um2] (0,500)
     ['kdr_gbar_soma', 0., 500.]]           # [pS/um2] (0,100)
 
@@ -51,7 +50,14 @@ ephys_data = None
 
 resampling_frequency = 200. # [kHz]
 
+# the threshold for spike detection
 ap_threshold = -20. # [mV]
+
+# default windows for computation of the spike shape error
+spike_shape_error_window = [[-0.5,-0.1],[0.1,14]]
+
+# the (integer) power to which each ISI component is raised before being summed
+isi_error_power = 2
 
 def make_simplified_neuron(parameters):
     with_axon = False
@@ -142,7 +148,7 @@ def logger(log_type, msg, token):
 def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100, V0=-70, token=None):
     if not token is None:
         logger('start', 'current_steps', token)
-    #neuron.save_properties('%09d.h5' % token)
+        neuron.save_properties('%09d.h5' % token)
     stim = h.IClamp(neuron.soma[0](0.5))
     stim.dur = dur
     stim.delay = tbefore
@@ -162,7 +168,7 @@ def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100,
         V[i,:] = f(T)
         time.append(np.array(rec['t']))
         voltage.append(np.array(rec['v']))
-    stim.amp = 0
+        stim.amp = 0
     del stim
     if not token is None:
         logger('end', 'current_steps', token)
@@ -173,7 +179,7 @@ def hyperpolarizing_current_steps_error(t,V,Iinj,Vref):
     idx, = np.where(Iinj <= 0)
     return np.sum((V[idx,:]-Vref[idx,:])**2)
 
-def spike_shape_error(t,V,tp,Vth,window,token=None):
+def spike_shape_error(t,V,tp,Vth,window=spike_shape_error_window,token=None):
     flat_mean = lambda x: np.mean([z for y in x for z in y])
     logger('start','spike_shape_error',token)
     if np.isscalar(window[0]):
@@ -203,11 +209,23 @@ def spike_shape_error(t,V,tp,Vth,window,token=None):
 def isi_error(tp):
     err = None
     for i in range(len(tp)):
-        n = min(len(tp[i]),len(ephys_data['tp'][i]))
-        if n > 2:
+        #n = min(len(tp[i]),len(ephys_data['tp'][i]))
+        #if n > 2:
+        #    if err is None:
+        #        err = 0
+        #    err += np.sum((np.diff(tp[i][:n]) - np.diff(ephys_data['tp'][i][:n]))**2)
+        if len(tp[i]) == 0 or len(ephys_data['tp'][i]) == 0:
+            continue
+        for j in range(len(tp[i])):
             if err is None:
                 err = 0
-            err += np.sum((np.diff(tp[i][:n]) - np.diff(ephys_data['tp'][i][:n]))**2)
+            if j < len(ephys_data['tp'][i]):
+                err += abs(ephys_data['tp'][i][j] - tp[i][j])**isi_error_power
+            else:
+                err += abs(ephys_data['tp'][i][-1] - tp[i][j])**isi_error_power
+        if j < len(ephys_data['tp'][i]):
+            for k in range(j+1,len(ephys_data['tp'][i])):
+                err += abs(ephys_data['tp'][i][k] - tp[i][-1])**isi_error_power
     if err is None:
         return 1e10
     return err
@@ -293,12 +311,13 @@ def objectives_error(parameters):
         Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=ap_threshold, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
         logger('end', 'extractAPHalfWidth', token)
         if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,width,token):
+            CA3.utils.h5.save_h5_file('%s_spikes.h5'%token, tp=tp, Vp=Vp, tth=tth, Vth=Vth)
             if 'hyperpolarizing_current_steps' in objectives:
                 measures['hyperpolarizing_current_steps'] = hyperpolarizing_current_steps_error(t,V,ephys_data['I_amplitudes'],ephys_data['V'])
             if 'isi' in objectives:
                 measures['isi'] = isi_error(tp)
             if 'spike_onset' in objectives or 'spike_offset' in objectives:
-                err = spike_shape_error(t,V,tp,Vth,[[-0.5,-0.1],[0.1,14]],token)
+                err = spike_shape_error(t,V,tp,Vth,spike_shape_error_window,token)
                 if 'spike_onset' in objectives:
                     measures['spike_onset'] = err[0]
                 if 'spike_offset' in objectives:
@@ -529,7 +548,7 @@ def display_spike(t, V, ephys_data, wndw, title):
     tth,Vth = extractAPThreshold(t, V, threshold=ap_threshold, tpeak=tp)
     tavg,Vavg,dVavg = extract_average_trace(t, V, tp, wndw, 1./resampling_frequency)
     p.figure(figsize=(7,3))
-    p.axes([0.1,0.2,0.225,0.7])
+    p.axes([0.1,0.2,0.2,0.7])
     p.plot(ephys_data['t'],ephys_data['V'][-1],'k')
     p.plot(t, V[-1,:], 'r')
     p.xlabel('Time (ms)')
@@ -548,6 +567,7 @@ def display_spike(t, V, ephys_data, wndw, title):
     p.xticks(np.linspace(wndw[0],wndw[1],3))
     p.yticks([-20,20,60,100])
     p.xlabel('Time (ms)')
+    p.ylabel('Vm - AP threshold (mV)')
     p.title(title)
     remove_border()
 
@@ -628,16 +648,22 @@ def display():
     # number of individuals
     ngenes = data['generations'][last].shape[0]
  
+    # find the optimal parameters for each objective at the last generation
+    best_individuals = {}
+    opt_pars = {}
+    for obj in data['objectives']:
+        best_individuals[obj] = np.argmin(data['generations'][last][:,data['columns'][obj]])
+        opt_pars[obj] = {}
+        for v in data['variables']:
+            opt_pars[obj][v[0]] = data['generations'][last][best_individuals[obj],data['columns'][v[0]]]
+        print('The best individual for objective "%s" is #%d with error = %g.' %
+              (obj,best_individuals[obj],data['generations'][last][best_individuals[obj],data['columns'][obj]]))
+
     # plot the evolution of the optimization variables
-    nbins = 300
+    nbins = 80
     nvar = len(data['variables'])
     c = 3
     r = np.ceil(float(nvar)/c)
-    #offset = 0.1
-    #dx = 0.1
-    #dy = 0.1
-    #w = (1 - 1.5*offset - dx*(n-1))/n
-    #h = (1 - 1.5*offset - dy*(m-1))/m
     p.figure(figsize=(c*3,r*3))
     for i,v in enumerate(data['variables']):
         var = np.zeros((nbins,ngen))
@@ -645,56 +671,66 @@ def display():
             var[:,j],edges = np.histogram(data['generations']['%d'%j][:,data['columns'][v[0]]], bins=nbins, range=[float(v[1]),float(v[2])])
         tmp = data['generations']['%d'%(ngen-1)][:,data['columns'][v[0]]]
         ax = make_axes(r,c,i+1)
+        opt = {'origin': 'lower', 'cmap': p.get_cmap('Greys'), 'interpolation': 'nearest'}
         if edges[-1] > 1000:
-            p.imshow(var, extent=[1,ngen,edges[0]*1e-3,edges[-1]*1e-3], aspect=ngen/(edges[-1]-edges[0])*1e3,
-                     origin='lower', cmap=p.get_cmap('Greys'), vmax=(np.min(var)+np.max(var))/2, vmin=np.min(var))
+            p.imshow(var, extent=[1,ngen,edges[0]*1e-3,edges[-1]*1e-3], aspect=ngen/(edges[-1]-edges[0])*1e3, **opt)
             p.ylabel(v[0] + ' (1e3)')
             p.yticks(np.linspace(edges[0],edges[-1],5)*1e-3)
         else:
-            p.imshow(var/np.max(var), extent=[1,ngen,edges[0],edges[-1]], aspect=ngen/(edges[-1]-edges[0]),
-                     origin='lower', cmap=p.get_cmap('Greys'), vmax=(np.min(var)+np.max(var))/2, vmin=np.min(var))
+            p.imshow(var/np.max(var), extent=[1,ngen,edges[0],edges[-1]], aspect=ngen/(edges[-1]-edges[0]), **opt)
             p.ylabel(v[0])
             p.yticks(np.linspace(edges[0],edges[-1],5))
-        p.xticks(np.arange(0,ngen+1,100))
+        p.xticks(np.linspace(0,ngen,6))
         p.xlabel('Generation #')
         remove_border()
     p.savefig(base_dir + '/variables.pdf')
 
     # plot the trade-offs between all possible error pairs at the last generation
+    colors = [[1,0.5,0],[0.5,0,1],[0,1,0.5],[1,1,0],[1,0,1],[0,1,1],[1,0,0],[0,1,0],[0,0,1]]
     err = np.zeros((nobj,ngen,ngenes))
     for i,obj in enumerate(data['objectives']):
         for j in range(ngen):
             err[i,j,:] = data['generations']['%d'%j][:,data['columns'][obj]]
+            idx, = np.where(err[i,j,:] < 1e10)
+            err[i,j,idx] /= np.std(err[i,j,idx])
     tot = nobj*(nobj-1)/2
-    c = 3
-    r = np.ceil(tot/c)
-    subp = 1
-    p.figure(figsize=(c*3,r*3))
-    for i in range(nobj):
-        for j in range(i+1,nobj):
-            idx, = np.where((err[i,-1,:] < 1e10) & (err[j,-1,:] < 1e10))
-            ax = make_axes(r,c,subp)
-            p.plot(err[i,-1,idx]*1e-3,err[j,-1,idx]*1e-3,'k.',markersize=2)
-            p.xlabel(data['objectives'][i].replace('_',' ') + ' (1e3)')
-            p.ylabel(data['objectives'][j].replace('_',' ') + ' (1e3)')
-            p.xticks([0,p.xlim()[1]])
-            p.yticks([0,p.ylim()[1]])
-            remove_border()
-            subp += 1
-    p.savefig(base_dir + '/errors.pdf')
+    if tot > 0:
+        c = 3
+        r = np.ceil(tot/c)
+        subp = 1
+        p.figure(figsize=(c*3,r*3))
+        for i in range(nobj):
+            for j in range(i+1,nobj):
+                #idx, = np.where((err[i,-1,:] < 1e10) & (err[j,-1,:] < 1e10))
+                idx, = np.where((err[i,-1,:] <= 3) & (err[j,-1,:] <= 3))
+                ax = make_axes(r,c,subp)
+                p.plot(err[i,-1,idx],err[j,-1,idx],'k.',markersize=2)
+                for obj,col in zip(data['objectives'],colors[:len(data['objectives'])]):
+                    x = err[i,-1,best_individuals[obj]]
+                    y = err[j,-1,best_individuals[obj]]
+                    if x <= 3 and y <= 3:
+                        p.plot(x,y,'o',color=col,markersize=6)
+                p.xlabel(data['objectives'][i].replace('_',' '))
+                p.ylabel(data['objectives'][j].replace('_',' '))
+                #p.xticks([0,p.xlim()[1]])
+                #p.yticks([0,p.ylim()[1]])
+                p.axis([0,3,0,3])
+                p.xticks([0,1,2,3])
+                p.yticks([0,1,2,3])
+                remove_border()
+                subp += 1
+        p.savefig(base_dir + '/errors.pdf')
+        got_errors = True
+    else:
+        got_errors = False
 
-    err = np.zeros((ngenes,nobj))
-    norm_err = np.zeros((ngenes,nobj))
-    for i,obj in enumerate(data['objectives']):
-        err[:,i] = data['generations'][last][:,data['columns'][obj]]
-        norm_err[:,i] = (err[:,i] - min(err[:,i])) / (max(err[:,i]) - min(err[:,i]))
-        best = np.argmin(err[:,i])
-        print('The best individual for objective "%s" is #%d with error = %g.' % (obj,best,err[best,i]))
+    # plot the performance of the best individual for each objective
+    for obj in data['objectives']:
         # build the parameters dictionary
         pars = copy.deepcopy(data['neuron_pars'])
         parameters = {}
         for v in data['variables']:
-            parameters[v[0]] = data['generations'][last][best,data['columns'][v[0]]]
+            parameters[v[0]] = data['generations'][last][best_individuals[obj],data['columns'][v[0]]]
         for k,v in parameters.iteritems():
             if k == 'scaling':
                 pars[k] = v
@@ -729,6 +765,28 @@ def display():
         t,V = current_steps(neuron, data['ephys_data']['I_amplitudes'], data['ephys_data']['dt'][0],
                             data['ephys_data']['dur'], data['ephys_data']['tbefore'],
                             data['ephys_data']['tafter'], np.mean(data['ephys_data']['V'][:,0]))
+        tp,Vp = CA3.utils.extractAPPeak(t,V,threshold=ap_threshold,min_distance=1)
+        tth,Vth = CA3.utils.extractAPThreshold(t,V,threshold=ap_threshold,tpeak=tp)
+        global ephys_data
+        if obj == 'hyperpolarizing_current_steps':
+            err = hyperpolarizing_current_steps_error(t,V,data['ephys_data']['I_amplitudes'],data['ephys_data']['V'])
+        elif obj == 'spike_onset':
+            ephys_data = {'Vth': [data['ephys_data']['Vth']['%04d'%i] for i in range(len(data['ephys_data']['Vth']))]}
+            for k in 'tavg','Vavg','dVavg':
+                ephys_data[k] = data['ephys_data'][k]
+            err = spike_shape_error(t,V,tp,Vth,window=spike_shape_error_window)
+            err = err[0]
+        elif obj == 'spike_offset':
+            ephys_data = {'Vth': [data['ephys_data']['Vth']['%04d'%i] for i in range(len(data['ephys_data']['Vth']))]}
+            for k in 'tavg','Vavg','dVavg':
+                ephys_data[k] = data['ephys_data'][k]
+            err = spike_shape_error(t,V,tp,Vth,window=spike_shape_error_window)
+            err = err[1]
+        elif obj == 'isi':
+            tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
+            ephys_data = {'tp': [data['ephys_data']['tp']['%04d'%i] for i in range(len(data['ephys_data']['tp']))]}
+            err = isi_error(tp)
+        print('%s%s error: %g.' % (obj[0].upper(),obj[1:].replace('_',' '),err))
 
         globals()['display_' + obj](t,V,data['ephys_data'])
         p.savefig(base_dir + '/' + obj + '.pdf')
@@ -800,23 +858,26 @@ def display():
         fid.write('\\begin{figure}[htb]\n')
         fid.write('\\centering\n')
         fid.write('\\includegraphics[width=\\textwidth]{%s/variables.pdf}\n' % base_dir)
-        fid.write('\\caption{Variables.}\n')
+        fid.write('\\caption{Evolution of optimization variables with generation. Dark areas indicate clustering of individuals.}\n')
         fid.write('\\end{figure}\n')
         fid.write('\n')
-        fid.write('\\subsection*{Errors}')
-        fid.write('\\begin{figure}[htb]\n')
-        fid.write('\\centering\n')
-        fid.write('\\includegraphics[width=\\textwidth]{%s/errors.pdf}\n' % base_dir)
-        fid.write('\\caption{Trade-offs between objectives at the last generation: ')
-        fid.write('each black dot indicates a solution.}\n')
-        fid.write('\\end{figure}\n')
-        fid.write('\n')
+        if got_errors:
+            fid.write('\\subsection*{Errors}')
+            fid.write('\\begin{figure}[htb]\n')
+            fid.write('\\centering\n')
+            fid.write('\\includegraphics[width=\\textwidth]{%s/errors.pdf}\n' % base_dir)
+            fid.write('\\caption{Trade-offs between objectives at the last generation: ')
+            fid.write('each black dot indicates a solution. Each colored circle indicates the best ')
+            fid.write('solution for a particular objective.}\n')
+            fid.write('\\end{figure}\n')
+            fid.write('\n')
         fid.write('\\subsection*{Cost functions}')
         for obj in data['objectives']:
             fid.write('\\begin{figure}[htb]\n')
             fid.write('\\centering\n')
             fid.write('\\includegraphics{%s/%s.pdf}\n' % (base_dir,obj))
-            fid.write('\\caption{%s%s error}\n' % (obj[0].upper(), obj[1:].replace('_',' ')))
+            fid.write('\\caption{%s%s error. Optimal parameters: %s.}\n' % (obj[0].upper(), obj[1:].replace('_',' '),
+                                 ', '.join(['='.join([k.replace('_','\_'),'%.2f'%v]) for k,v in opt_pars[obj].iteritems()])))
             fid.write('\\end{figure}\n')
             fid.write('\n')
         fid.write('\\end{document}\n')
@@ -824,7 +885,6 @@ def display():
     os.remove(base_dir + '/' + tex_file)
     os.remove(tex_file[:-4] + '.aux')
     os.remove(tex_file[:-4] + '.log')
-
 
 def help():
     print('This script optimizes the active properties of a reduced morphology.')

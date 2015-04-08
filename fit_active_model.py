@@ -23,7 +23,7 @@ try:
 except:
     pass
 
-DEBUG = False
+SAVE_DEBUG_INFO = True
 model_type = 'simplified'
 ReducedNeuron = CA3.cells.SimplifiedNeuron
 
@@ -54,7 +54,7 @@ resampling_frequency = 200. # [kHz]
 ap_threshold = -20. # [mV]
 
 # default windows for computation of the spike shape error
-spike_shape_error_window = [[-0.5,-0.1],[0.1,14]]
+spike_shape_error_window = [[-2.,0.],[0.,14.]]
 
 # the (integer) power to which each ISI component is raised before being summed
 isi_error_power = 2
@@ -148,7 +148,10 @@ def logger(log_type, msg, token):
 def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100, V0=-70, token=None):
     if not token is None:
         logger('start', 'current_steps', token)
-        neuron.save_properties('%09d.h5' % token)
+        if SAVE_DEBUG_INFO:
+            opts = {'%s' % token: {'parameters': neuron.parameters, 'has_active':neuron.has_active,
+                                   'has_axon': neuron.has_axon, 'neuron_type':neuron.__class__.__name__}}
+            CA3.utils.h5.save_h5_file(h5_filename, 'a', **opts)
     stim = h.IClamp(neuron.soma[0](0.5))
     stim.dur = dur
     stim.delay = tbefore
@@ -311,7 +314,9 @@ def objectives_error(parameters):
         Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=ap_threshold, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
         logger('end', 'extractAPHalfWidth', token)
         if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,width,token):
-            CA3.utils.h5.save_h5_file('%s_spikes.h5'%token, tp=tp, Vp=Vp, tth=tth, Vth=Vth)
+            if SAVE_DEBUG_INFO:
+                opts = {'%s_spikes' % token: {'tp': tp, 'Vp': Vp, 'tth': tth, 'Vth': Vth}}
+                CA3.utils.h5.save_h5_file(h5_filename, 'a', **opts)
             if 'hyperpolarizing_current_steps' in objectives:
                 measures['hyperpolarizing_current_steps'] = hyperpolarizing_current_steps_error(t,V,ephys_data['I_amplitudes'],ephys_data['V'])
             if 'isi' in objectives:
@@ -489,7 +494,9 @@ def optimize():
     # find the average spike shape: this makes sense only for regular spiking cells
     tp = [ephys_data['tp'][str(i)] for i in range(ephys_data['V'].shape[0])]
     ephys_data['tavg'],ephys_data['Vavg'],ephys_data['dVavg'] = extract_average_trace(ephys_data['t'],ephys_data['V'],
-                                                                                      tp,window=[-1,15],interp_dt=1./resampling_frequency)
+                                                                                      tp,window=[spike_shape_error_window[0][0],
+                                                                                                 spike_shape_error_window[1][1]],
+                                                                                      interp_dt=1./resampling_frequency)
     # find the current amplitudes
     j = int((ephys_data['tbefore']+ephys_data['dur'])/2/ephys_data['dt'])
     idx, = np.where(ephys_data['I'][:,j] <= 0)
@@ -528,7 +535,7 @@ def optimize():
                                                                 'p_m': args.pm},
                                   objectives=objectives, variables=variables, model_type=model_type,
                                   h5_file=args.filename, ephys_file=args.data_file, ephys_data=ephys_data,
-                                  neuron_pars=neuron_pars, ap_threshold=ap_threshold)
+                                  neuron_pars=neuron_pars, ap_threshold=ap_threshold, spike_shape_error_window=spike_shape_error_window)
 
 def display_hyperpolarizing_current_steps(t, V, ephys_data):
     p.figure(figsize=(5,3))
@@ -583,10 +590,10 @@ def display_spike(t, V, ephys_data, wndw, title):
     remove_border()
 
 def display_spike_onset(t, V, ephys_data):
-    display_spike(t, V, ephys_data, [-0.5,-0.1], 'Spike onset')
+    display_spike(t, V, ephys_data, spike_shape_error_window[0], 'Spike onset')
 
 def display_spike_offset(t, V, ephys_data):
-    display_spike(t, V, ephys_data, [0.1,14], 'Spike offset')
+    display_spike(t, V, ephys_data, spike_shape_error_window[1], 'Spike offset')
 
 def display_isi(t, V, ephys_data):
     tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)

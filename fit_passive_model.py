@@ -145,8 +145,6 @@ def voltage_deflection(neuron, amp=-0.5, dur=500, delay=100):
     return distances,voltages,soma,basal,proximal,distal
 
 def voltage_deflection_error(pars):
-    if DEBUG:
-        import pylab as p    
     neuron = make_simplified_neuron(pars, detailed_neuron['cell'])
     distances,voltages,soma,basal,proximal,distal = voltage_deflection(neuron)
     err = (soma['voltages'][0]-np.mean(detailed_neuron['soma']['voltages']))**2
@@ -416,6 +414,7 @@ def display():
     for i,obj in enumerate(data['objectives']):
         err[:,i] = data['generations'][last][:,data['columns'][obj]]
         norm_err[:,i] = (err[:,i] - min(err[:,i])) / (max(err[:,i]) - min(err[:,i]))
+        err[:,i] /= np.std(err[:,i])
     best = np.argmin(np.sum(norm_err[:,:2]**2,axis=1))
     Ra_soma = data['generations'][last][best,data['columns']['Ra_soma']]
     Ra_basal = data['generations'][last][best,data['columns']['Ra_basal']]
@@ -447,7 +446,32 @@ def display():
     simplified['impedance'],simplified['phase'] = impedance(simplified['neuron'],frequencies=frequencies)
     base_dir = '/tmp'
     tex_file = os.path.basename(args.filename)[:-3] + '.tex'
-    import pylab as p
+
+    # plot the evolution of the optimization variables
+    nbins = 80
+    nvar = len(data['variables'])
+    c = 3
+    r = np.ceil(float(nvar)/c)
+    p.figure(figsize=(c*3,r*3))
+    for i,v in enumerate(data['variables']):
+        var = np.zeros((nbins,ngen))
+        for j in range(ngen):
+            var[:,j],edges = np.histogram(data['generations']['%d'%j][:,data['columns'][v[0]]], bins=nbins, range=[float(v[1]),float(v[2])])
+        tmp = data['generations']['%d'%(ngen-1)][:,data['columns'][v[0]]]
+        ax = make_axes(r,c,i+1)
+        opt = {'origin': 'lower', 'cmap': p.get_cmap('Greys'), 'interpolation': 'nearest'}
+        p.imshow(var/np.max(var), extent=[1,ngen,edges[0],edges[-1]], aspect=ngen/(edges[-1]-edges[0]), **opt)
+        p.plot(p.xlim(), [float(v[1]),float(v[1])], 'r--')
+        p.plot(p.xlim(), [float(v[2]),float(v[2])], 'r--')
+        p.ylim([float(v[1])-0.05*(float(v[2])-float(v[1])),float(v[2])+0.05*(float(v[2])-float(v[1]))])
+        p.xlabel('Generation #')
+        p.ylabel(v[0])
+        p.xticks(np.round(np.linspace(0,ngen,6)))
+        p.yticks(np.round(np.linspace(edges[0],edges[-1],5)))
+        remove_border()
+    p.savefig(base_dir + '/variables.pdf')
+
+    # plot the trade-offs between all possible error pairs at the last generation
     n = len(data['objectives'])
     tot = n*(n-1)/2
     c = 3
@@ -457,13 +481,13 @@ def display():
     for i in range(n):
         for j in range(i+1,n):
             ax = make_axes(r,c,subp,offset=[0.1,0.2],spacing=0.1)
-            p.plot(norm_err[:,i],norm_err[:,j],'k.',markersize=2)
-            p.plot(norm_err[best,i],norm_err[best,j],'ro',markersize=4)
-            p.axis([-0.05,1,-0.05,1])
-            p.xlabel('Normalized %s error' % data['objectives'][i].replace('_',' '))
-            p.ylabel('Normalized %s error' % data['objectives'][j].replace('_',' '))
-            p.xticks([0,0.5,1])
-            p.yticks([0,0.5,1])
+            p.plot(err[:,i],err[:,j],'k.',markersize=2)
+            p.plot(err[best,i],err[best,j],'ro',markersize=6)
+            p.axis([0,3,0,3])
+            p.xlabel('%s error' % data['objectives'][i].replace('_',' '))
+            p.ylabel('%s error' % data['objectives'][j].replace('_',' '))
+            p.xticks([0,1,2,3])
+            p.yticks([0,1,2,3])
             remove_border()
             subp += 1
     p.savefig(base_dir + '/errors.pdf')
@@ -559,11 +583,19 @@ def display():
         #fid.write('\\caption{Reduced model parameters.}\n')
         fid.write('\\end{table}\n')
         fid.write('\n')
+        fid.write('\\subsection*{Variables}')
+        fid.write('\\begin{figure}[htb]\n')
+        fid.write('\\centering\n')
+        fid.write('\\includegraphics[width=\\textwidth]{%s/variables.pdf}\n' % base_dir)
+        fid.write('\\caption{Evolution of optimization variables with generation. Dark areas indicate clustering of individuals. ')
+        fid.write('The red dashed lines indicate the optimization bounds.}\n')
+        fid.write('\\end{figure}\n')
+        fid.write('\n')
         fid.write('\\subsection*{Errors}')
         fid.write('\\begin{figure}[htb]\n')
         fid.write('\\centering\n')
         fid.write('\\includegraphics[width=\\textwidth]{%s/errors.pdf}\n' % base_dir)
-        fid.write('\\caption{Trade-offs between objectives at the last generation: ')
+        fid.write('\\caption{Trade-offs between objectives at the last generation in units of standard deviations: ')
         fid.write('each black dot indicates a solution, while the red dot is the chosen solution ')
         fid.write('(i.e., the one that minimizes the sum of the square normalized voltage deflection ')
         fid.write('and impedance error, \\textbf{without} considering the phase error).}\n')

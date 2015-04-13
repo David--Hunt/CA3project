@@ -23,7 +23,7 @@ try:
 except:
     pass
 
-SAVE_DEBUG_INFO = True
+SAVE_DEBUG_INFO = False
 model_type = 'simplified'
 ReducedNeuron = CA3.cells.SimplifiedNeuron
 
@@ -343,9 +343,11 @@ def objectives_error(parameters):
 
 def check_population(population, columns, gen):
     if emoo.master_mode:
+        logger('start','check_population',5061983)
         if gen == 0:
             CA3.utils.h5.save_h5_file(h5_filename, 'w', columns=columns)
         CA3.utils.h5.save_h5_file(h5_filename,'a',generations={('%d'%gen): population})
+        logger('stop','check_population',5061983)
 
 def optimize():
     # parse the command-line arguments
@@ -403,7 +405,12 @@ def optimize():
     with_axon = False
     if not args.add is None:
         if args.add[0] == 'all':
-            args.add = ['axon','nat-dend','kdr-dend','nap','km','kahp','kd','kap','ih','ih-dend']
+            args.add = ['nap','km','kahp','kd','kap','ih']
+        if not args.single_compartment:
+            args.add.append('axon')
+            args.add.append('nat-dend')
+            args.add.append('kdr-dend')
+            args.add.append('ih-dend')
         for opt in args.add:
             if opt == 'axon':
                 variables.append(['nat_gbar_hillock', 0., 20000.])      # [pS/um2] (0,20000)
@@ -440,7 +447,7 @@ def optimize():
     # output filename
     global h5_filename
     if args.out_file is None:
-        h5_filename = CA3.utils.h5.make_output_filename(os.path.basename(data['swc_filename']).rstrip('.swc'), '.h5')
+        h5_filename = CA3.utils.h5.make_output_filename(os.path.basename(data['swc_filename']).rstrip('.swc'), '.h5', with_rand=True)
     else:
         h5_filename = args.out_file
 

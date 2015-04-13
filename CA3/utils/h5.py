@@ -46,7 +46,7 @@ def load_h5_file(filename):
         load_dict(fid, data)
     return data
 
-def make_output_filename(prefix='', extension='.out'):
+def make_output_filename(prefix='', extension='.out', with_rand=False):
     filename = prefix
     if prefix != '' and prefix[-1] != '_':
         filename = filename + '_'
@@ -55,11 +55,14 @@ def make_output_filename(prefix='', extension='.out'):
         (now.tm_year, now.tm_mon, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec)
     if extension[0] != '.':
         extension = '.' + extension
-    suffix = ''
-    k = 0
-    while os.path.exists(filename + suffix + extension):
-        k = k+1
-        suffix = '_%d' % k
+    if with_rand:
+        suffix = '_%d' % int(10000 * np.random.uniform())
+    else:
+        suffix = ''
+        k = 0
+        while os.path.exists(filename + suffix + extension):
+            k = k+1
+            suffix = '_%d' % k
     return filename + suffix + extension
 
 def main():

@@ -212,11 +212,6 @@ def spike_shape_error(t,V,tp,Vth,window=spike_shape_error_window,token=None):
 def isi_error(tp):
     err = None
     for i in range(len(tp)):
-        #n = min(len(tp[i]),len(ephys_data['tp'][i]))
-        #if n > 2:
-        #    if err is None:
-        #        err = 0
-        #    err += np.sum((np.diff(tp[i][:n]) - np.diff(ephys_data['tp'][i][:n]))**2)
         if len(tp[i]) == 0 or len(ephys_data['tp'][i]) == 0:
             continue
         for j in range(len(tp[i])):
@@ -232,6 +227,27 @@ def isi_error(tp):
     if err is None:
         return 1e10
     return err
+
+def spike_rate_error(tp, dur):
+    import pdb
+    pdb.set_trace()
+    rate_ref = np.array(map(len, ephys_data['tp'])) / (dur*1e-3)
+    return 0
+
+def accommodation_index_error(tp):
+    return 0
+
+def latency_error(tp, t0):
+    return 0
+
+def AP_overshoot_error(Vp):
+    return 0
+
+def AHP_depth_error(Vahp):
+    return 0
+
+def AP_width_error(width):
+    return 0
 
 def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
     retval = True
@@ -263,6 +279,11 @@ def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
             print('%d check_prerequistes: too many spikes (%d instead of %d).' % (token,nspikes,ref_nspikes))
             retval = False
             break
+        # too few spikes
+        #elif nspikes < 0.5*ref_nspikes:
+        #    print('%d check_prerequistes: too few spikes (%d instead of %d).' % (token,nspikes,ref_nspikes))
+        #    retval = False
+        #    break
         # spike block?
         elif ref_nspikes > 0 and nspikes > 0 and m > -40 and s < 3:
             print('%d check_prerequistes: mean(voltage) > -40 and std(voltage) < 3.' % token)
@@ -327,6 +348,21 @@ def objectives_error(parameters):
                     measures['spike_onset'] = err[0]
                 if 'spike_offset' in objectives:
                     measures['spike_offset'] = err[1]
+            if 'spike_rate' in objectives:
+                measures['spike_rate'] = spike_rate_error(tp, ephys_data['dur'])
+            if 'accommodation_index' in objectives:
+                measures['accommodation_index'] = accommodation_index_error(tp)
+            if 'latency' in objectives:
+                measures['latency'] = latency_error(tp, ephys_data['tbefore'])
+            if 'ap_overshoot' in objectives:
+                measures['ap_overshoot'] = AP_overshoot_error(Vp)
+            if 'ahp_depth' in objectives:
+                logger('start', 'extractAPAHP', token)
+                tahp,Vahp = extractAPAHP(t, V, max_ahp_dur=10, threshold=ap_threshold, tpeak=tp, tthresh=tth)
+                logger('end', 'extractAPAHP', token)
+                measures['ahp'] = AHP_depth_error(Vahp)
+            if 'ap_width' in objectives:
+                measures['ap_width'] = AP_width_error(width)
 
     #import pylab as p
     #for i,v in enumerate(ephys_data['V']):
@@ -349,6 +385,31 @@ def check_population(population, columns, gen):
         CA3.utils.h5.save_h5_file(h5_filename,'a',generations={('%d'%gen): population})
         logger('stop','check_population',5061983)
 
+def extract_spike_rate(spike_times, stim_dur):
+    if np.isscalar(spike_times[0]):
+        f = len(spike_times) / (stim_dur*1e-3)
+    else:
+        f = np.array(map(len, spike_times)) / (stim_dur*1e-3)
+    return np.mean(f),np.std(f)
+
+def extract_accommodation_index(spike_times):
+    # number of spikes
+    n_spikes = np.array(map(lambda x: float(len(x)), spike_times))
+    # number of ISIs
+    n_isi = n_spikes-1
+    # number of ISIs that should be discarded
+    k = np.min(np.c_[np.round(n_isi/5), 4+np.zeros(len(n_isi))], axis=1)
+    A = []
+    for i in np.where((n_isi-k >= 2) & (k>=1))[0]:
+        print spike_times[i],k[i]
+        isi = np.diff(spike_times[i][k[i]:])
+        print isi
+        A.append(0)
+        for j in range(1,len(isi)):
+            A[-1] += (isi[j]-isi[j-1]) / (isi[j]+isi[j-1])
+        A[-1] /= (n_spikes[i] - k[i] - 1)
+    return np.mean(A),np.std(A)
+
 def optimize():
     # parse the command-line arguments
     parser = arg.ArgumentParser(description='Fit a reduced morphology to a detailed one considering only passive properties')
@@ -370,7 +431,8 @@ def optimize():
     parser.add_argument('--add', action='append', help='List of ion channels to add to the optimization. ' +
                         'Available options are axon, nat-dend, kdr-dend, nap, km, kahp, kd, kap, ih and ih-dend')
     parser.add_argument('--optimize', action='append', help='List of objectives to be optimized. ' +
-                        'Available options are hyperpolarizing_current_steps, spike_onset, spike_offset and isi')
+                        'Available options are hyperpolarizing_current_steps, spike_onset, spike_offset, isi, ' +
+                        'spike_rate, accommodation_index, latency, ap_overshoot, ahp_depth and ap_width')
     parser.add_argument('--single-compartment', action='store_true', help='Use a single-compartment neuron model')
     parser.add_argument('-o','--out-file', type=str, help='Output file name (default: same as morphology file)')
     parser.add_argument('-d','--data-file', type=str, help='Data file for fitting')
@@ -397,11 +459,21 @@ def optimize():
         sys.exit(3)
     global objectives
     if args.optimize[0] == 'all':
+        objectives = ['hyperpolarizing_current_steps','spike_onset','spike_offset','isi', # used in Bahl et al., 2012
+                      'spike_rate','accommodation_index', 'latency', 'ap_overshoot', 'ahp_depth', 'ap_width'] # used in Druckmann et al., 2007
+    elif args.optimize[0] == 'bahl':
         objectives = ['hyperpolarizing_current_steps','spike_onset','spike_offset','isi']
+    elif args.optimize[0] == 'druckmann':
+        objectives = ['spike_rate','accommodation_index', 'latency', 'ap_overshoot', 'ahp_depth', 'ap_width']
     else:
         for cost in args.optimize:
             objectives.append(cost)
-
+    if 'spike_rate' in objectives or 'accommodation_index' in objectives or \
+            'latency' in objectives or 'ap_overshoot' in objectives or \
+            'ahp_depth' in objectives or 'ap_width' in objectives:
+        print('Not fully implemented yet.')
+        sys.exit(0)
+            
     with_axon = False
     if not args.add is None:
         if args.add[0] == 'all':
@@ -504,6 +576,13 @@ def optimize():
                                                                                       tp,window=[spike_shape_error_window[0][0],
                                                                                                  spike_shape_error_window[1][1]],
                                                                                       interp_dt=1./resampling_frequency)
+    # find the firing rate corresponding to the maximum value of the injected current
+    idx, = np.where(np.max(ephys_data['I'],axis=1) == np.max(ephys_data['I'][-1,:]))
+    ephys_data['spike_rate'] = {}
+    ephys_data['spike_rate']['mean'],ephys_data['spike_rate']['std'] = extract_spike_rate(tp[idx], ephys_data['dur'])
+    # find the accommodation index
+    ephys_data['accommodation_index'] = {}
+    ephys_data['accommodation_index']['mean'],ephys_data['accommodation_index']['std'] = extract_accommodation_index(tp)
     # find the current amplitudes
     j = int((ephys_data['tbefore']+ephys_data['dur'])/2/ephys_data['dt'])
     idx, = np.where(ephys_data['I'][:,j] <= 0)
@@ -607,9 +686,7 @@ def display_isi(t, V, ephys_data):
     p.figure(figsize=(5,3))
     p.axes([0.15,0.2,0.75,0.7])
     p.plot(ephys_data['t'],ephys_data['V'][-1],'k')
-    p.plot(ephys_data['tp']['0004'],ephys_data['Vp']['0004'],'ko',markersize=4)
     p.plot(t, V[-1,:], 'r')
-    p.plot(tp[-1], Vp[-1], 'ro',markersize=4)
     p.xlabel('Time (ms)')
     p.ylabel('Membrane potential (mV)')
     p.axis([100,700,-80,60])
@@ -687,15 +764,22 @@ def display():
         ax = make_axes(r,c,i+1)
         opt = {'origin': 'lower', 'cmap': p.get_cmap('Greys'), 'interpolation': 'nearest'}
         if edges[-1] > 1000:
-            p.imshow(var, extent=[1,ngen,edges[0]*1e-3,edges[-1]*1e-3], aspect=ngen/(edges[-1]-edges[0])*1e3, **opt)
-            p.ylabel(v[0] + ' (1e3)')
-            p.yticks(np.linspace(edges[0],edges[-1],5)*1e-3)
+            coeff = 1e-3
+        elif edges[-1] < 1:
+            coeff = 1e3
         else:
-            p.imshow(var/np.max(var), extent=[1,ngen,edges[0],edges[-1]], aspect=ngen/(edges[-1]-edges[0]), **opt)
-            p.ylabel(v[0])
-            p.yticks(np.linspace(edges[0],edges[-1],5))
-        p.xticks(np.linspace(0,ngen,6))
+            coeff = 1
+        p.imshow(var, extent=[1,ngen,edges[0]*coeff,edges[-1]*coeff], aspect=ngen/(edges[-1]-edges[0])/coeff, **opt)
+        p.plot(p.xlim(), [float(v[1])*coeff,float(v[1])*coeff], 'r--')
+        p.plot(p.xlim(), [float(v[2])*coeff,float(v[2])*coeff], 'r--')
+        p.ylim([(float(v[1])-0.05*(float(v[2])-float(v[1])))*coeff,(float(v[2])+0.05*(float(v[2])-float(v[1])))*coeff])
         p.xlabel('Generation #')
+        if coeff != 1:
+            p.ylabel(v[0] + (' (%.0e)' % coeff))
+        else:
+            p.ylabel(v[0])
+        p.xticks(np.round(np.linspace(0,ngen,6)))
+        p.yticks(np.round(np.linspace(edges[0],edges[-1],5)*coeff))
         remove_border()
     p.savefig(base_dir + '/variables.pdf')
 
@@ -872,7 +956,8 @@ def display():
         fid.write('\\begin{figure}[htb]\n')
         fid.write('\\centering\n')
         fid.write('\\includegraphics[width=\\textwidth]{%s/variables.pdf}\n' % base_dir)
-        fid.write('\\caption{Evolution of optimization variables with generation. Dark areas indicate clustering of individuals.}\n')
+        fid.write('\\caption{Evolution of optimization variables with generation. Dark areas indicate clustering of individuals. ')
+        fid.write('The red dashed lines indicate the optimization bounds.}\n')
         fid.write('\\end{figure}\n')
         fid.write('\n')
         if got_errors:
@@ -880,7 +965,7 @@ def display():
             fid.write('\\begin{figure}[htb]\n')
             fid.write('\\centering\n')
             fid.write('\\includegraphics[width=\\textwidth]{%s/errors.pdf}\n' % base_dir)
-            fid.write('\\caption{Trade-offs between objectives at the last generation: ')
+            fid.write('\\caption{Trade-offs between objectives at the last generation in units of standard deviation: ')
             fid.write('each black dot indicates a solution. Each colored circle indicates the best ')
             fid.write('solution for a particular objective.}\n')
             fid.write('\\end{figure}\n')

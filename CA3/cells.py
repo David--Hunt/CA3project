@@ -363,7 +363,41 @@ class SimplifiedNeuron (Neuron):
                 print('Not inserting N-type calcium current.')
             pass
 
+    def set_vtraub(self, sec):
+        try:
+            sec.vtraub_hh2 = self.parameters['vtraub']
+        except:
+            sec.vtraub_hh2 += 10.
+
+    def compute_gbar_at_position(self, distance_from_soma, parameters, max_distance=None):
+        if parameters['dend_mode'] == 'passive':
+            return 0.
+        # the gbar at one of the extrema, i.e. the soma
+        if 'gbar_soma' in parameters:
+            gbar_0 = parameters['gbar_soma']
+        elif 'gbar' in parameters:
+            gbar_0 = parameters['gbar']
+        else:
+            raise Exception('No gbar or gbar_soma in the parameters for mechanism %s' % mech_name)
+        # the gbar at the other extremum, i.e. the distal tip
+        if 'gbar_distal' in parameters:
+            gbar_1 = parameters['gbar_distal']
+        elif 'dend_scaling' in parameters:
+            gbar_1 = gbar_0 * parameters['dend_scaling']
+        else:
+            gbar_1 = 0.
+        if parameters['dend_mode'] == 'constant':
+            g = gbar_1
+        elif parameters['dend_mode'] == 'linear':
+            g = gbar_0 + distance_from_soma/max_distance * (gbar_1 - gbar_0)
+        elif parameters['dend_mode'] == 'exponential':
+            g = gbar_1 + (gbar_0 - gbar_1) * np.exp(-distance_from_soma/parameters['lambda'])
+        elif parameters['dend_mode'] == 'sigmoidal':
+            g = gbar_1 + (gbar_0 - gbar_1) / (1. + np.exp((distance_from_soma - parameters['half_dist'])/parameters['lambda']))
+        return max(g*PSUM2_TO_SCM2,0)
+
     def insert_fast_Na_and_delayed_rectifier_K(self):
+        # sodium and potassium in the soma and axon (if present)
         if self.has_axon:
             sections = [sec for sec in it.chain(self.soma,self.axon)]
         else:
@@ -372,10 +406,7 @@ class SimplifiedNeuron (Neuron):
             sec.insert('hh2')
             sec.ena = 55
             sec.ek = -90
-            try:
-                sec.vtraub_hh2 = self.parameters['vtraub']
-            except:
-                sec.vtraub_hh2 += 10.
+            self.set_vtraub(sec)
             sec.gnabar_hh2 = self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2
             sec.gkbar_hh2 = self.parameters['kdr']['gbar_soma'] * PSUM2_TO_SCM2
             if self.has_axon:
@@ -385,93 +416,44 @@ class SimplifiedNeuron (Neuron):
                     sec.gnabar_hh2 = self.parameters['nat']['gbar_ais'] * PSUM2_TO_SCM2
                 else:
                     sec.gnabar_hh2 = self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2
-        for mech in 'nat','kdr':
-            for k in 'gbar_distal','lambda':
-                if not k in self.parameters[mech]:
-                    return
-        # exponentially decreasing sodium in the dendrites
+
+        # sodium and potassium in the dendrites
         h.distance(sec=self.soma[0])
-        for sec in it.chain(self.basal,self.proximal,self.distal):
+        if 'max_dist' in self.parameters['nat']:
+            max_dist_Na = self.parameters['nat']['max_dist']
+        else:
+            max_dist_Na = h.distance(1, sec=self.basal[-1])
+        if 'max_dist' in self.parameters['kdr']:
+            max_dist_K = self.parameters['kdr']['max_dist']
+        else:
+            max_dist_K = h.distance(1, sec=self.basal[-1])
+        for sec in self.basal:
             sec.insert('hh2')
             sec.ena = 55
             sec.ek = -90
-            try:
-                sec.vtraub_hh2 = self.parameters['vtraub']
-            except:
-                sec.vtraub_hh2 += 10.
+            self.set_vtraub(sec)
             for seg in sec:
                 dst = h.distance(seg.x,sec=sec)
-                if sec in self.basal:
-                    seg.hh2.gnabar = 0
-                else:
-                    seg.hh2.gnabar = ((self.parameters['nat']['gbar_soma']-self.parameters['nat']['gbar_distal']) * \
-                                          np.exp(-dst/self.parameters['nat']['lambda']) + self.parameters['nat']['gbar_distal']) * PSUM2_TO_SCM2
-                seg.hh2.gkbar = ((self.parameters['kdr']['gbar_soma']-self.parameters['kdr']['gbar_distal']) * \
-                                     np.exp(-dst/self.parameters['kdr']['lambda']) + self.parameters['kdr']['gbar_distal']) * PSUM2_TO_SCM2
-        # for the reduction of sodium in the dendrites see Kim et al., 2012, Nat. Neurosci.
-        #if dend_mode == 'sigmoidal':
-        #    # sigmoidally decreasing sodium in the dendrites
-        #    h.distance(sec=self.soma[0])
-        #    #gbar = self.parameters['nat']['dend_scaling']*self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2
-        #    gbar = self.parameters['nat']['gbar_distal']
-        #    for sec in it.chain(self.proximal,self.distal):
-        #        sec.insert('hh2')
-        #        sec.ena = 55
-        #        sec.ek = -90
-        #        for seg in sec:
-        #            seg.hh2.gkbar = self.parameters['kdr']['dend_scaling'] * self.parameters['kdr']['gbar'] * PSUM2_TO_SCM2
-        #            seg.hh2.gnabar = gbar + (self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2 - gbar) / \
-        #                (1. + np.exp((h.distance(seg.x,sec=sec) - self.parameters['nat']['half_dist'])/self.parameters['nat']['lambda']))
-        #            if DEBUG:
-        #                print('gbar Nat @ x = %g: %g' % (h.distance(seg.x,sec=sec),seg.hh2.gnabar))
-        #elif dend_mode == 'linear':
-        #    # linearly decreasing sodium in the dendrites
-        #    max_dist += self.soma[0].L
-        #    for sec in it.chain(self.proximal,self.distal,self.basal):
-        #        h.distance(sec=self.soma[0])
-        #        if h.distance(0.,sec=sec) < max_dist:
-        #            if DEBUG:
-        #                print('Inserting HH conductance in %s.' % h.secname(sec=sec))
-        #            sec.insert('hh2')
-        #            sec.ena = 55
-        #            sec.ek = -90
-        #            for seg in sec:
-        #                seg.hh2.gnabar = max(self.soma[0].gnabar_hh2 * (max_dist-h.distance(seg.x,sec=sec))/max_dist,0)
-        #                if DEBUG and seg.hh2.gnabar > 0:
-        #                    print('g_Na @ x = %g: %g' % (seg.x,seg.hh2.gnabar))
-        #else:
-        #    raise Exception('Unknown mode "%s"' % dend_mode)
-
-    def insert_fast_Na_and_delayed_rectifier_K_bis(self):
-        if self.has_axon:
-            sections = [sec for sec in it.chain(self.soma,self.axon)]
-        else:
-            sections = self.soma
-        for sec in sections:
-            sec.insert('na3')
-            sec.insert('kdr')
+                seg.hh2.gnabar = self.compute_gbar_at_position(dst, self.parameters['nat'], max_dist_Na)
+                seg.hh2.gkbar = self.compute_gbar_at_position(dst, self.parameters['kdr'], max_dist_K)
+                if DEBUG:
+                    print('gbar INa @ x = %g: %g' % (dst,seg.hh2.gnabar))
+                    print('gbar IK @ x = %g: %g' % (dst,seg.hh2.gkbar))
+        if not 'max_dist' in self.parameters['nat']:
+            max_dist_Na = h.distance(1, sec=self.distal[-1])
+        if not 'max_dist' in self.parameters['kdr']:
+            max_dist_K = h.distance(1, sec=self.distal[-1])
+        for sec in it.chain(self.proximal,self.distal):
+            sec.insert('hh2')
             sec.ena = 55
             sec.ek = -90
-            sec.gbar_na3 = 0.022
-            sec.gkdrbar_kdr = 0.01
-            sec.sh_na3 = 10
-            if sec is self.axon[0]:
-                sec.gbar_na3 = 0.05
-        max_dist = 100. + self.soma[0].L
-        for sec in it.chain(self.proximal,self.distal,self.basal):
-            h.distance(sec=self.soma[0])
-            if h.distance(0.,sec=sec) < max_dist:
+            for seg in sec:
+                dst = h.distance(seg.x,sec=sec)
+                seg.hh2.gnabar = self.compute_gbar_at_position(dst, self.parameters['nat'], max_dist_Na)
+                seg.hh2.gkbar = self.compute_gbar_at_position(dst, self.parameters['kdr'], max_dist_K)
                 if DEBUG:
-                    print('Inserting HH conductance in %s.' % h.secname(sec=sec))
-                sec.insert('na3')
-                sec.insert('kdr')
-                sec.ena = 55
-                sec.ek = -90
-                for seg in sec:
-                    seg.na3.gbar = max(self.soma[0].gbar_na3 * (max_dist-h.distance(seg.x,sec=sec))/max_dist,0)
-                    seg.na3.sh = 10
-                    if DEBUG and seg.na3.gbar > 0:
-                        print('g_Na @ x = %g: %g' % (seg.x,seg.na3.gbar))
+                    print('gbar INa @ x = %g: %g' % (dst,seg.hh2.gnabar))
+                    print('gbar IK @ x = %g: %g' % (dst,seg.hh2.gkbar))
 
     def insert_persistent_Na(self):
         self.parameters['nap']['gbar']
@@ -541,13 +523,10 @@ class SimplifiedNeuron (Neuron):
         # sigmoidally increasing Ih in the dendrites.
         # see Poirazi et al., 2003, Neuron
         h.distance(sec=self.soma[0])
-        gbar = self.parameters['ih']['dend_scaling'] * self.parameters['ih']['gbar_soma'] * PSUM2_TO_SCM2
         for sec in it.chain(self.proximal,self.distal):
             sec.insert('hd')
             for seg in sec:
-                seg.hd.ghdbar = self.parameters['ih']['gbar_soma'] * PSUM2_TO_SCM2 + \
-                    (gbar - self.parameters['ih']['gbar_soma'] * PSUM2_TO_SCM2) / \
-                    (1. + np.exp((self.parameters['ih']['half_dist']-h.distance(seg.x,sec=sec))/self.parameters['ih']['lambda']))
+                seg.hd.ghdbar = self.compute_gbar_at_position(h.distance(seg.x,sec=sec), self.parameters['ih'])
                 if DEBUG:
                     print('gbar Ih @ x = %g: %g' % (h.distance(seg.x,sec=sec),seg.hd.ghdbar))
 
@@ -870,46 +849,38 @@ def run_step_single(amplitude=0.5):
 
 def run_step(amplitude=0.12):
     parameters = {'scaling': 0.5,
-                  'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 10e3, 'L': 20., 'diam': 20.},
-                  'proximal': {'Ra': 500., 'El': -70., 'L': 500., 'diam': 5.},
-                  'distal': {'Ra': 500., 'El': -70., 'L': 200., 'diam': 2.},
-                  'basal': {'Ra': 500., 'El': -70., 'L': 300., 'diam': 5.},
-                  'proximal_limit': 100.,
-                  'swc_filename': '../../morphologies/DH070613-1-.Edit.scaled.swc'}
-    parameters = {'scaling': 0.5,
-                  'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 10e3, 'L': 20., 'diam': 20., 'area': 1500},
+                  'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 10e3, 'area': 1500},
                   'proximal': {'Ra': 500., 'El': -70., 'L': 500., 'diam': 5.},
                   'distal': {'Ra': 500., 'El': -70., 'L': 200., 'area': 1500.},
-                  'basal': {'Ra': 500., 'El': -70., 'L': 300., 'diam': 5.},
-                  'proximal_limit': 100.,
-                  'swc_filename': '../../morphologies/DH070613-1-.Edit.scaled.swc'}
+                  'basal': {'Ra': 500., 'El': -70., 'L': 300., 'diam': 5.}}
     # the passive properties of the axon are the same as the soma
     parameters['axon'] = parameters['soma'].copy()
-    parameters['axon'].pop('L')
-    parameters['axon'].pop('diam')
-
     # fast sodium current
-    #parameters['nat'] = {'gbar_soma': 500, 'gbar_hillock': 5000, 'gbar_ais': 10000,
-    #                     'half_dist': 50., 'lambda': 10., 'dend_scaling': 0.1}
-    parameters['nat'] = {'gbar_soma': 50, 'gbar_hillock': 5000, 'gbar_ais': 10000,
-                         'gbar_distal': 5, 'lambda': 50}
+    with_axon = False
+    #parameters['nat'] = {'gbar_soma': 50, 'gbar_distal': 5, 'lambda': 50, 'dend_mode': 'exponential'}
+    parameters['nat'] = {'gbar_soma': 100, 'dend_mode': 'linear'}
+    #parameters['nat'] = {'gbar_soma': 100, 'dend_scaling': 0.2, 'dend_mode': 'constant'}
+    #parameters['nat'] = {'gbar_soma': 100, 'dend_mode': 'passive'}
+    if with_axon:
+        parameters['nat']['gbar_hillock'] = 1000
+        parameters['nat']['gbar_ais'] = 2500
     # delayed rectifier potassium
-    #parameters['kdr'] = {'gbar': 50, 'dend_scaling': 0.5}
-    parameters['kdr'] = {'gbar_soma': 50, 'gbar_distal': 20, 'lambda': 50}
+    #parameters['kdr'] = {'gbar_soma': 50, 'gbar_distal': 20, 'lambda': 50, 'dend_mode': 'exponential'}
+    parameters['kdr'] = {'gbar_soma': 20, 'dend_mode': 'linear'}
     # persistent sodium
-    parameters['nap'] = {'gbar': 1e-4}
+    #parameters['nap'] = {'gbar': 1e-4}
     # muscarinic potassium
-    parameters['km'] = {'gbar': 20}
+    #parameters['km'] = {'gbar': 20}
     # ahp potassium
-    parameters['kahp'] = {'gbar': 300}
+    #parameters['kahp'] = {'gbar': 300}
     # K-D
-    parameters['kd'] = {'gbar': 1e-4}
+    #parameters['kd'] = {'gbar': 1e-4}
     # A-type potassium
-    parameters['kap'] = {'gbar': 10}
+    #parameters['kap'] = {'gbar': 10}
     # Ih current
-    parameters['ih'] = {'gbar_soma': 1e-2, 'dend_scaling': 10., 'half_dist': 100., 'lambda': 30.}
+    #parameters['ih'] = {'gbar_soma': 1e-2, 'dend_scaling': 10., 'half_dist': 100., 'lambda': 30., 'dend_mode': 'sigmoidal'}
 
-    n = SimplifiedNeuron(parameters,with_axon=True,with_active=True)
+    n = SimplifiedNeuron(parameters,with_axon=with_axon,with_active=True)
     #n = AThornyNeuron(parameters,with_axon=True,with_active=True)
     #n = ThornyNeuron(parameters,with_axon=True,with_active=True)
     #n = SWCNeuron(parameters,with_axon=False,with_active=False,convert_to_3pt_soma=False)
@@ -936,4 +907,4 @@ def run_step(amplitude=0.12):
     p.show()
 
 if __name__ == '__main__':
-    run_step_single()
+    run_step()

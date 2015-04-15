@@ -7,6 +7,7 @@ import argparse as arg
 import itertools as it
 import time
 import copy
+import ConfigParser
 import CA3
 from CA3.utils import *
 from CA3.utils.graphics import *
@@ -24,19 +25,19 @@ except:
     pass
 
 SAVE_DEBUG_INFO = False
+
 model_type = 'simplified'
 ReducedNeuron = CA3.cells.SimplifiedNeuron
 
 # the list of objectives
 objectives = []
 
-# minimum set of variables to optimize
-variables = [
-    ['Cm', 0.6, 3.],                       # [uF/cm2] membrane capacitance (0.6,3)
-    ['Rm', 5e3, 30e3],                     # [Ohm cm2] membrane resistance (10e3,30e3)
-    ['El', -70., -50.],                    # [mV] reversal potential of leak conductance (-85,-50)
-    ['nat_gbar_soma', 0., 500.],           # [pS/um2] (0,500)
-    ['kdr_gbar_soma', 0., 500.]]           # [pS/um2] (0,100)
+# the list of variables to optimize
+variables = []
+
+# this dictionary will contain the strings that describe the types of dendritic decays
+# used for some active currents (transient sodium, rectifier potassium and Ih)
+dendritic_modes = {}
 
 # the neuron parameters that have been obtained by the previous
 # optimization of the passive properties
@@ -48,6 +49,7 @@ neuron_pars = {'soma': {'Ra': None, 'area': None},
 # the electrophysiological data used in the optimization
 ephys_data = None
 
+# the frequency at which data is resampled for computing the Vm errors
 resampling_frequency = 200. # [kHz]
 
 # the threshold for spike detection
@@ -80,6 +82,8 @@ def make_simplified_neuron(parameters):
                 pars[key][value] = v
             except:
                 pars[key] = {value: v}
+            if key in dendritic_modes:
+                pars[key]['dend_mode'] = dendritic_modes[key]
     if 'nat_gbar_ais' in parameters and 'nat_gbar_hillock' in parameters:
         with_axon = True
         # the passive properties of the axon are the same as the soma
@@ -412,116 +416,86 @@ def extract_accommodation_index(spike_times):
 
 def optimize():
     # parse the command-line arguments
-    parser = arg.ArgumentParser(description='Fit a reduced morphology to a detailed one considering only passive properties')
-    parser.add_argument('filename', type=str, action='store', help='Path of the H5 file containing the results of the optimization of passive properties')
-    parser.add_argument('-N', '--population-size', default=512, type=int,
-                        help='Population size for the genetic algorithm (default: 700)')
-    parser.add_argument('-G', '--generation-number', default=200, type=int,
-                        help='Number of generations for the genetic algorithm (default: 200)')
-    parser.add_argument('--pm', default=0.1, type=float,
-                        help='Probability of mutation (default: 0.1)')
-    parser.add_argument('--etam-start', default=10., type=float,
-                        help='Initial value of the mutation parameter (default: 10)')
-    parser.add_argument('--etam-end', default=500., type=float,
-                        help='Final value of the mutation parameter (default: 500)')
-    parser.add_argument('--etac-start', default=5., type=float,
-                        help='Initial value of the crossover parameter (default: 5)')
-    parser.add_argument('--etac-end', default=50., type=float,
-                        help='Final value of the crossover parameter (default: 50)')
-    parser.add_argument('--add', action='append', help='List of ion channels to add to the optimization. ' +
-                        'Available options are axon, nat-dend, kdr-dend, nap, km, kahp, kd, kap, ih and ih-dend')
-    parser.add_argument('--optimize', action='append', help='List of objectives to be optimized. ' +
-                        'Available options are hyperpolarizing_current_steps, spike_onset, spike_offset, isi, ' +
-                        'spike_rate, accommodation_index, latency, ap_overshoot, ahp_depth and ap_width')
+    parser = arg.ArgumentParser(description='Fit a multicompartmental neuron model to data.')
+    parser.add_argument('config_file', type=str, action='store', help='Path of the H5 file containing the results of the optimization of passive properties')
     parser.add_argument('--single-compartment', action='store_true', help='Use a single-compartment neuron model')
-    parser.add_argument('-o','--out-file', type=str, help='Output file name (default: same as morphology file)')
-    parser.add_argument('-d','--data-file', type=str, help='Data file for fitting')
     args = parser.parse_args(args=sys.argv[2:])
 
-    if args.filename is None:
-        print('You must provide the path of the H5 file with the results of the optimization of passive properties.')
+    cp = ConfigParser.ConfigParser()
+    cp.optionxform = str
+    cp.read(args.config_file)
+
+    try:
+        passive_opt_file = cp.get('Optimization','passive_results')
+    except:
+        print('Option [Optimization/passive_results] missing. It should contain the path of the H5 file with the results of the optimization of passive properties.')
         sys.exit(1)
-    
-    if not os.path.isfile(args.filename):
-        print('%s: no such file.' % args.filename)
-        sys.exit(2)
-
-    if args.data_file is None:
-        print('You must provide the path of the data file.')
+    if not os.path.isfile(passive_opt_file):
+        print('%s: no such file.' % passive_opt_file)
         sys.exit(1)
 
-    if not os.path.isfile(args.data_file):
-        print('%s: no such file.' % args.data_file)
-        sys.exit(2)
+    try:
+        data_file = cp.get('Optimization','data_file')
+    except:
+        print('Option [Optimization/data_file] missing. It should contain the path of the file containing the electrophysiological data.')
+        sys.exit(1)
+    if not os.path.isfile(data_file):
+        print('%s: no such file.' % data_file)
+        sys.exit(1)
 
-    if args.optimize is None:
-        print('You must specify at least one function to optimize.')
-        sys.exit(3)
-    global objectives
-    if args.optimize[0] == 'all':
-        objectives = ['hyperpolarizing_current_steps','spike_onset','spike_offset','isi', # used in Bahl et al., 2012
-                      'spike_rate','accommodation_index', 'latency', 'ap_overshoot', 'ahp_depth', 'ap_width'] # used in Druckmann et al., 2007
-    elif args.optimize[0] == 'bahl':
-        objectives = ['hyperpolarizing_current_steps','spike_onset','spike_offset','isi']
-    elif args.optimize[0] == 'druckmann':
-        objectives = ['spike_rate','accommodation_index', 'latency', 'ap_overshoot', 'ahp_depth', 'ap_width']
-    else:
-        for cost in args.optimize:
-            objectives.append(cost)
+    try:
+        global objectives
+        for obj in cp.get('Optimization','objectives').split(','):
+            objectives.append(obj)
+    except:
+        print('Option [Optimization/objectives] missing. You must specify at least one function to optimize.')
+        sys.exit(1)
     if 'spike_rate' in objectives or 'accommodation_index' in objectives or \
             'latency' in objectives or 'ap_overshoot' in objectives or \
             'ahp_depth' in objectives or 'ap_width' in objectives:
         print('Not fully implemented yet.')
         sys.exit(0)
-            
-    with_axon = False
-    if not args.add is None:
-        if args.add[0] == 'all':
-            args.add = ['nap','km','kahp','kd','kap','ih']
-        if not args.single_compartment:
-            args.add.append('axon')
-            args.add.append('nat-dend')
-            args.add.append('kdr-dend')
-            args.add.append('ih-dend')
-        for opt in args.add:
-            if opt == 'axon':
-                variables.append(['nat_gbar_hillock', 0., 20000.])      # [pS/um2] (0,20000)
-                variables.append(['nat_gbar_ais', 0., 20000.])          # [pS/um2] (0,20000)
-                variables.append(['nat_gbar_distal', 0., 100.])         # [pS/um2] (0,100)
-            elif opt == 'nat-dend':
-                variables.append(['nat_lambda', 1., 100.])              # [um] (1,500)
-            elif opt == 'kdr-dend':
-                variables.append(['kdr_gbar_distal', 0., 10.])          # [pS/um2] (0,10)
-                variables.append(['kdr_lambda', 1., 100.])              # [um] (0,100)
-            elif opt == 'nap':
-                variables.append(['nap_gbar', 0., 5.])                  # [pS/um2] in the paper, 0 < gbar < 4.1
-            elif opt == 'km':
-                variables.append(['km_gbar', 0., 2.])                   # [pS/um2]
-            elif opt == 'kahp':
-                variables.append(['kahp_gbar', 0., 500.])               # [pS/um2]
-            elif opt == 'kd':
-                variables.append(['kd_gbar', 0., 0.01])                 # [pS/um2]
-            elif opt == 'kap':
-                variables.append(['kap_gbar', 0., 100.])                # [pS/um2]
-            elif opt == 'ih':
-                variables.append(['ih_gbar_soma', 0., 0.1])             # [pS/um2]
-            elif opt == 'ih-dend':
-                variables.append(['ih_dend_scaling', 0., 10.])          # [1]
-                variables.append(['ih_half_dist', 0., 500.])            # [um]
-                variables.append(['ih_lambda', 1., 500.])               # [um]
 
+    global variables
+    for var in 'Cm','Rm','El':
+        try:
+            a = map(float, cp.get('Variables',var).split(','))
+            variables.append([var, a[0], a[1]])
+        except:
+            print('Option [Variables/%s] missing.' % var)
+            sys.exit(1)
     if not args.single_compartment:
-        variables.append(['scaling', 0.3, 2.])   # [1] scaling of dendritic capacitance and membrane resistance (0.5,2)
+        try:
+            a = map(float, cp.get('Variables','scaling').split(','))
+            variables.append(['scaling', a[0], a[1]])
+        except:
+            print('Option [Variables/scaling] missing and command line switch --single-compartment not specified.')
+            sys.exit(1)
+
+    global denditric_modes
+    for section in cp.sections():
+        if section in ('Algorithm','Optimization','Variables'):
+            continue
+        for var in cp.items(section):
+            try:
+                a = map(float, var[1].split(','))
+            except:
+                if var[0] == 'dend_mode':
+                    dendritic_modes[section] = var[1]
+                else:
+                    print('Unknown key,value pair in section [%s]: %s,%s.' % (section,var[0],var[1]))
+            else:
+                variables.append([section + '_' + var[0], a[0], a[1]])
 
     # load the data relative to the optimization of the passive properties
-    data = CA3.utils.h5.load_h5_file(args.filename)
+    data = CA3.utils.h5.load_h5_file(passive_opt_file)
 
     # output filename
     global h5_filename
-    if args.out_file is None:
+    try:
+        h5_filename = cp.get('Optimization','out_file')
+    except:
         h5_filename = CA3.utils.h5.make_output_filename(os.path.basename(data['swc_filename']).rstrip('.swc'), '.h5', with_rand=True)
-    else:
-        h5_filename = args.out_file
 
     # find the ``best'' individual
     last = str(len(data['generations'])-1)
@@ -553,11 +527,16 @@ def optimize():
         ReducedNeuron = CA3.cells.AThornyNeuron
     elif data['model_type'].lower() != 'simplified':
         print('The model type must be one of "simplified", "thorny" or "athorny".')
-        sys.exit(3)
+        sys.exit(1)
+
+    if model_type == 'single_compartment':
+        if 'scaling' in [var[0] for var in variables]:
+            print('Command line switch --single-compartment conflicts with option [Variables/scaling].')
+            sys.exit(1)
 
     # load the ephys data to use in the optimization
     global ephys_data
-    ephys_data = CA3.utils.h5.load_h5_file(args.data_file)
+    ephys_data = CA3.utils.h5.load_h5_file(data_file)
     # transpose the data so that number of rows = number of trials
     ephys_data['V'] = ephys_data['V'].transpose()
     ephys_data['I'] = ephys_data['I'].transpose()
@@ -600,28 +579,35 @@ def optimize():
         ephys_data['V'+lbl] = [ephys_data['V'+lbl][str(k)] for k in idx]
 
     # initiate the Evolutionary Multiobjective Optimization
-    global emoo
-    emoo = Emoo(N=args.population_size, C=2*args.population_size, variables=variables, objectives=objectives)
+    n_individuals = cp.getint('Algorithm','n_individuals')
+    n_generations = cp.getint('Algorithm','n_generations')
+    p_m = cp.getfloat('Algorithm', 'mutation_prob')
+    etam_start = cp.getfloat('Algorithm', 'etam_start')
+    etam_end = cp.getfloat('Algorithm', 'etam_end')
+    etac_start = cp.getfloat('Algorithm', 'etac_start')
+    etac_end = cp.getfloat('Algorithm', 'etac_end')
 
-    d_etam = (args.etam_end - args.etam_start) / args.generation_number
-    d_etac = (args.etac_end - args.etac_start) / args.generation_number
-    emoo.setup(eta_m_0=args.etam_start, eta_c_0=args.etac_start, p_m=args.pm, finishgen=0, d_eta_m=d_etam, d_eta_c=d_etac)
-    # Parameters:
-    # eta_m_0, eta_c_0: defines the initial strength of the mutation and crossover parameter (large values mean weak effect)
-    # p_m: probability of mutation of a parameter (holds for each parameter independently)
+    global emoo
+    emoo = Emoo(N=n_individuals, C=2*n_individuals, variables=variables, objectives=objectives)
+
+    d_etam = (etam_end - etam_start) / n_generations
+    d_etac = (etac_end - etac_start) / n_generations
+    emoo.setup(eta_m_0=etam_start, eta_c_0=etac_start, p_m=p_m, finishgen=0, d_eta_m=d_etam, d_eta_c=d_etac)
 
     emoo.get_objectives_error = objectives_error
     emoo.checkpopulation = check_population
     
-    emoo.evolution(generations=args.generation_number)
+    emoo.evolution(generations=n_generations)
 
     if emoo.master_mode:
-        CA3.utils.h5.save_h5_file(h5_filename, 'a', parameters={'etam_start': args.etam_start, 'etam_end': args.etam_end,
-                                                                'etac_start': args.etac_start, 'etac_end': args.etac_end,
-                                                                'p_m': args.pm},
+        CA3.utils.h5.save_h5_file(h5_filename, 'a', parameters={'etam_start': etam_start, 'etam_end': etam_end,
+                                                                'etac_start': etac_start, 'etac_end': etac_end,
+                                                                'p_m': p_m},
                                   objectives=objectives, variables=variables, model_type=model_type,
-                                  h5_file=args.filename, ephys_file=args.data_file, ephys_data=ephys_data,
-                                  neuron_pars=neuron_pars, ap_threshold=ap_threshold, spike_shape_error_window=spike_shape_error_window)
+                                  h5_file=passive_opt_file, ephys_file=data_file, ephys_data=ephys_data,
+                                  neuron_pars=neuron_pars, ap_threshold=ap_threshold,
+                                  spike_shape_error_window=spike_shape_error_window,
+                                  dendritic_modes=dendritic_modes)
 
 def display_hyperpolarizing_current_steps(t, V, ephys_data):
     p.figure(figsize=(5,3))
@@ -696,7 +682,7 @@ def display_isi(t, V, ephys_data):
     
 def display():
     parser = arg.ArgumentParser(description='Fit the parameters of a reduced morphology to electrophysiological data')
-    parser.add_argument('filename', type=str, action='store', help='Path of the file containing the morphology')
+    parser.add_argument('filename', type=str, action='store', help='Path of the configuration file to use.')
     args = parser.parse_args(args=sys.argv[2:])
     if not os.path.isfile(args.filename):
         print('%s: no such file.' % args.filename)

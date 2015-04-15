@@ -418,42 +418,49 @@ class SimplifiedNeuron (Neuron):
                     sec.gnabar_hh2 = self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2
 
         # sodium and potassium in the dendrites
-        h.distance(sec=self.soma[0])
-        if 'max_dist' in self.parameters['nat']:
-            max_dist_Na = self.parameters['nat']['max_dist']
-        else:
-            max_dist_Na = h.distance(1, sec=self.basal[-1])
-        if 'max_dist' in self.parameters['kdr']:
-            max_dist_K = self.parameters['kdr']['max_dist']
-        else:
-            max_dist_K = h.distance(1, sec=self.basal[-1])
-        for sec in self.basal:
-            sec.insert('hh2')
-            sec.ena = 55
-            sec.ek = -90
-            self.set_vtraub(sec)
-            for seg in sec:
-                dst = h.distance(seg.x,sec=sec)
-                seg.hh2.gnabar = self.compute_gbar_at_position(dst, self.parameters['nat'], max_dist_Na)
-                seg.hh2.gkbar = self.compute_gbar_at_position(dst, self.parameters['kdr'], max_dist_K)
-                if DEBUG:
-                    print('gbar INa @ x = %g: %g' % (dst,seg.hh2.gnabar))
-                    print('gbar IK @ x = %g: %g' % (dst,seg.hh2.gkbar))
-        if not 'max_dist' in self.parameters['nat']:
-            max_dist_Na = h.distance(1, sec=self.distal[-1])
-        if not 'max_dist' in self.parameters['kdr']:
-            max_dist_K = h.distance(1, sec=self.distal[-1])
-        for sec in it.chain(self.proximal,self.distal):
-            sec.insert('hh2')
-            sec.ena = 55
-            sec.ek = -90
-            for seg in sec:
-                dst = h.distance(seg.x,sec=sec)
-                seg.hh2.gnabar = self.compute_gbar_at_position(dst, self.parameters['nat'], max_dist_Na)
-                seg.hh2.gkbar = self.compute_gbar_at_position(dst, self.parameters['kdr'], max_dist_K)
-                if DEBUG:
-                    print('gbar INa @ x = %g: %g' % (dst,seg.hh2.gnabar))
-                    print('gbar IK @ x = %g: %g' % (dst,seg.hh2.gkbar))
+        if len(self.basal) > 0:
+            h.distance(sec=self.soma[0])
+            if 'max_dist' in self.parameters['nat']:
+                max_dist_Na = self.parameters['nat']['max_dist']
+            else:
+                max_dist_Na = h.distance(1, sec=self.basal[-1])
+            if 'max_dist' in self.parameters['kdr']:
+                max_dist_K = self.parameters['kdr']['max_dist']
+            else:
+                max_dist_K = h.distance(1, sec=self.basal[-1])
+            for sec in self.basal:
+                sec.insert('hh2')
+                sec.ena = 55
+                sec.ek = -90
+                self.set_vtraub(sec)
+                for seg in sec:
+                    dst = h.distance(seg.x,sec=sec)
+                    seg.hh2.gnabar = self.compute_gbar_at_position(dst, self.parameters['nat'], max_dist_Na)
+                    seg.hh2.gkbar = self.compute_gbar_at_position(dst, self.parameters['kdr'], max_dist_K)
+                    if DEBUG:
+                        print('gbar INa @ x = %g: %g' % (dst,seg.hh2.gnabar))
+                        print('gbar IK @ x = %g: %g' % (dst,seg.hh2.gkbar))
+        if len(self.proximal)+len(self.distal) > 0:
+            if 'max_dist' in self.parameters['nat']:
+                max_dist_Na = self.parameters['nat']['max_dist']
+            else:
+                max_dist_Na = h.distance(1, sec=self.distal[-1])
+            if 'max_dist' in self.parameters['kdr']:
+                max_dist_K = self.parameters['kdr']['max_dist']
+            else:
+                max_dist_K = h.distance(1, sec=self.distal[-1])
+            for sec in it.chain(self.proximal,self.distal):
+                sec.insert('hh2')
+                sec.ena = 55
+                sec.ek = -90
+                self.set_vtraub(sec)
+                for seg in sec:
+                    dst = h.distance(seg.x,sec=sec)
+                    seg.hh2.gnabar = self.compute_gbar_at_position(dst, self.parameters['nat'], max_dist_Na)
+                    seg.hh2.gkbar = self.compute_gbar_at_position(dst, self.parameters['kdr'], max_dist_K)
+                    if DEBUG:
+                        print('gbar INa @ x = %g: %g' % (dst,seg.hh2.gnabar))
+                        print('gbar IK @ x = %g: %g' % (dst,seg.hh2.gkbar))
 
     def insert_persistent_Na(self):
         self.parameters['nap']['gbar']

@@ -4,7 +4,7 @@ import time
 import h5py as h5
 import numpy as np
 
-__all__ = ['save_h5_file','load_h5_file','make_output_filename']
+__all__ = ['save_h5_file','load_h5_file','save_text_file_to_h5_file','make_output_filename']
 
 def save_dict(fid, group, data):
     for key,value in data.iteritems():
@@ -28,6 +28,15 @@ def save_dict(fid, group, data):
 def save_h5_file(filename, mode='w', **kwargs):
     with h5.File(filename, mode) as fid:
         save_dict(fid, fid, kwargs)
+
+def save_text_file_to_h5_file(h5_filename, text_filename, mode='w', dataset_name=None):
+    if not os.path.exists(text_filename):
+        raise Exception('%s: no such file.' % text_filename)
+    with open(text_filename, 'r') as fid:
+        if dataset_name is None:
+            dataset_name = os.path.basename(text_filename)
+        opt = {dataset_name: fid.readlines()}
+        save_h5_file(h5_filename, mode, **opt)
 
 def load_dict(group, data):
     for k,v in group.iteritems():

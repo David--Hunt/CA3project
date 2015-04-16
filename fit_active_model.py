@@ -608,6 +608,7 @@ def optimize():
                                   neuron_pars=neuron_pars, ap_threshold=ap_threshold,
                                   spike_shape_error_window=spike_shape_error_window,
                                   dendritic_modes=dendritic_modes)
+        CA3.utils.h5.save_text_file_to_h5_file(h5_filename, args.config_file, 'a', 'config_file')
 
 def display_hyperpolarizing_current_steps(t, V, ephys_data):
     p.figure(figsize=(5,3))

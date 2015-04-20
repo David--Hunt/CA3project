@@ -405,9 +405,7 @@ def extract_accommodation_index(spike_times):
     k = np.min(np.c_[np.round(n_isi/5), 4+np.zeros(len(n_isi))], axis=1)
     A = []
     for i in np.where((n_isi-k >= 2) & (k>=1))[0]:
-        print spike_times[i],k[i]
         isi = np.diff(spike_times[i][k[i]:])
-        print isi
         A.append(0)
         for j in range(1,len(isi)):
             A[-1] += (isi[j]-isi[j-1]) / (isi[j]+isi[j-1])
@@ -833,6 +831,8 @@ def display():
                     pars[key][value] = v
                 except:
                     pars[key] = {value: v}
+                if key in data['dendritic_modes']:
+                    pars[key]['dend_mode'] = data['dendritic_modes'][key]
         pars['axon'] = copy.deepcopy(pars['soma'])
         try:
             pars['axon'].pop('L')

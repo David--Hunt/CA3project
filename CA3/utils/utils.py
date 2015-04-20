@@ -50,7 +50,7 @@ def extractAPPeak(T, V, threshold=None, min_distance=5):
             vpeak[i] = pks
     return tpeak,vpeak
 
-def extractAPThreshold(T, V, threshold=None, tpeak=None):
+def extractAPThreshold(T, V, threshold=None, tpeak=None, model=True):
     if len(V.shape) == 1:
         V = np.array([V])
     nexp = V.shape[0]
@@ -67,15 +67,20 @@ def extractAPThreshold(T, V, threshold=None, tpeak=None):
             t = T[idx]
             v = np.squeeze(V[i,idx])
             dvdt = (v[2:] - v[:-2]) / (2*dt)
-            baseline = 0.2 * np.max(dvdt)
-            d2vdt2 = (dvdt[2:] - dvdt[:-2]) / (2*dt)
-            d3vdt3 = (d2vdt2[2:] - d2vdt2[:-2]) / (2*dt)
-            pks,locs = findpeaks(d3vdt3)
-            for k in np.flipud(locs):
-                if v[k+3] <= threshold[i] and dvdt[k+1] <= baseline:
-                    break
-            tthresh[i][j] = t[k+3]
-            vthresh[i][j] = v[k+3]
+            if model:
+                k = np.where(dvdt > 25)[0][0]
+                tthresh[i][j] = t[k]
+                vthresh[i][j] = v[k]
+            else:
+                baseline = 0.2 * np.max(dvdt)
+                d2vdt2 = (dvdt[2:] - dvdt[:-2]) / (2*dt)
+                d3vdt3 = (d2vdt2[2:] - d2vdt2[:-2]) / (2*dt)
+                pks,locs = findpeaks(d3vdt3)
+                for k in np.flipud(locs):
+                    if v[k+3] <= threshold[i] and dvdt[k+1] <= baseline:
+                        break
+                tthresh[i][j] = t[k+3]
+                vthresh[i][j] = v[k+3]
     return tthresh,vthresh
 
 def extractAPHalfWidth(T, V, threshold=None, tpeak=None, Vpeak=None, tthresh=None, Vthresh=None, interp=True):

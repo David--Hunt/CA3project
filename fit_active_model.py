@@ -333,7 +333,7 @@ def objectives_error(parameters):
 
     if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,token=token):
         logger('start', 'extractAPThreshold', token)
-        tth,Vth = extractAPThreshold(t, V, threshold=ap_threshold, tpeak=tp)
+        tth,Vth = extractAPThreshold(t, V, threshold=ap_threshold, tpeak=tp, model=True)
         logger('end', 'extractAPThreshold', token)
         logger('start', 'extractAPHalfWidth', token)
         Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=ap_threshold, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
@@ -623,7 +623,7 @@ def display_hyperpolarizing_current_steps(t, V, ephys_data):
 
 def display_spike(t, V, ephys_data, wndw, title):
     tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
-    tth,Vth = extractAPThreshold(t, V, threshold=ap_threshold, tpeak=tp)
+    tth,Vth = extractAPThreshold(t, V, threshold=ap_threshold, tpeak=tp, model=True)
     tavg,Vavg,dVavg = extract_average_trace(t, V, tp, wndw, 1./resampling_frequency)
     p.figure(figsize=(7,3))
     p.axes([0.1,0.2,0.2,0.7])
@@ -851,7 +851,7 @@ def display():
                             data['ephys_data']['dur'], data['ephys_data']['tbefore'],
                             data['ephys_data']['tafter'], np.mean(data['ephys_data']['V'][:,0]))
         tp,Vp = CA3.utils.extractAPPeak(t,V,threshold=ap_threshold,min_distance=1)
-        tth,Vth = CA3.utils.extractAPThreshold(t,V,threshold=ap_threshold,tpeak=tp)
+        tth,Vth = CA3.utils.extractAPThreshold(t,V,threshold=ap_threshold,tpeak=tp,model=True)
         global ephys_data
         if obj == 'hyperpolarizing_current_steps':
             err = hyperpolarizing_current_steps_error(t,V,data['ephys_data']['I_amplitudes'],data['ephys_data']['V'])

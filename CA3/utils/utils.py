@@ -68,7 +68,8 @@ def extractAPThreshold(T, V, threshold=None, tpeak=None, model=True):
             v = np.squeeze(V[i,idx])
             dvdt = (v[2:] - v[:-2]) / (2*dt)
             if model:
-                k = np.where(dvdt > 25)[0][0]
+                th = np.min([25,np.max(dvdt)/2])
+                k = np.where(dvdt > th)[0][0]
                 tthresh[i][j] = t[k]
                 vthresh[i][j] = v[k]
             else:

@@ -419,6 +419,10 @@ def optimize():
     parser.add_argument('--single-compartment', action='store_true', help='Use a single-compartment neuron model')
     args = parser.parse_args(args=sys.argv[2:])
 
+    if not os.path.isfile(args.config_file):
+        print('%s: no such file.' % args.config_file)
+        sys.exit(1)
+
     cp = ConfigParser.ConfigParser()
     cp.optionxform = str
     cp.read(args.config_file)
@@ -442,9 +446,16 @@ def optimize():
         sys.exit(1)
 
     try:
-        global objectives
         for obj in cp.get('Optimization','objectives').split(','):
             objectives.append(obj)
+            if obj in ('spike_onset','spike_offset'):
+                idx = 1
+                if obj == 'spike_onset':
+                    idx = 0
+                try:
+                    spike_shape_error_window[idx] = map(float, cp.get(obj,'window').split(','))
+                except:
+                    pass
     except:
         print('Option [Optimization/objectives] missing. You must specify at least one function to optimize.')
         sys.exit(1)
@@ -454,7 +465,6 @@ def optimize():
         print('Not fully implemented yet.')
         sys.exit(0)
 
-    global variables
     for var in 'Cm','Rm','El':
         try:
             a = map(float, cp.get('Variables',var).split(','))
@@ -470,20 +480,20 @@ def optimize():
             print('Option [Variables/scaling] missing and command line switch --single-compartment not specified.')
             sys.exit(1)
 
-    global denditric_modes
-    for section in cp.sections():
-        if section in ('Algorithm','Optimization','Variables'):
-            continue
-        for var in cp.items(section):
-            try:
-                a = map(float, var[1].split(','))
-            except:
-                if var[0] == 'dend_mode':
-                    dendritic_modes[section] = var[1]
+    try:
+        for section in cp.get('Variables','conductances').split(','):
+            for var in cp.items(section):
+                try:
+                    a = map(float, var[1].split(','))
+                except:
+                    if var[0] == 'dend_mode':
+                        dendritic_modes[section] = var[1]
+                    else:
+                        print('Unknown key,value pair in section [%s]: %s,%s.' % (section,var[0],var[1]))
                 else:
-                    print('Unknown key,value pair in section [%s]: %s,%s.' % (section,var[0],var[1]))
-            else:
-                variables.append([section + '_' + var[0], a[0], a[1]])
+                    variables.append([section + '_' + var[0], a[0], a[1]])
+    except:
+        print('No active conductances in the model.')
 
     # load the data relative to the optimization of the passive properties
     data = CA3.utils.h5.load_h5_file(passive_opt_file)

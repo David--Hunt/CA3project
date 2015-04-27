@@ -745,6 +745,14 @@ def display():
         print('The best individual for objective "%s" is #%d with error = %g.' %
               (obj,best_individuals[obj],data['generations'][last][best_individuals[obj],data['columns'][obj]]))
 
+    try:
+        global spike_shape_error_window
+        spike_shape_error_window = data['spike_shape_error_window']
+    except:
+        pass
+    for i,pos in enumerate(['onset','offset']):
+        print('Spike %s window: [%.1f,%.1f] ms.' % (pos,spike_shape_error_window[i][0],spike_shape_error_window[i][1]))
+
     # plot the evolution of the optimization variables
     nbins = 80
     nvar = len(data['variables'])
@@ -760,7 +768,7 @@ def display():
         opt = {'origin': 'lower', 'cmap': p.get_cmap('Greys'), 'interpolation': 'nearest'}
         if edges[-1] > 1000:
             coeff = 1e-3
-        elif edges[-1] < 1:
+        elif np.abs(edges[-1]) < 1:
             coeff = 1e3
         else:
             coeff = 1

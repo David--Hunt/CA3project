@@ -306,6 +306,7 @@ class SimplifiedNeuron (Neuron):
         
     def insert_active_mech(self):
         self.insert_fast_Na_and_delayed_rectifier_K()
+        self.insert_calcium_dynamics()
         try:
             self.insert_persistent_Na()
         except:
@@ -342,8 +343,6 @@ class SimplifiedNeuron (Neuron):
             if DEBUG:
                 print('Not inserting Ih.')
             pass
-
-        self.insert_calcium_dynamics()
         try:
             self.insert_calcium_current('cal')
         except:
@@ -500,6 +499,10 @@ class SimplifiedNeuron (Neuron):
         for sec in self.soma:
             sec.insert('KahpM95')
             sec.gbar_KahpM95 = self.parameters['kahp']['gbar'] * PSUM2_TO_SCM2
+            try:
+                h.b0_KahpM95 = 1. / (self.parameters['kahp']['tau'] * h.q10_KahpM95**(0.1*(h.celsius-24)))
+            except:
+                pass
 
     def insert_K_D(self):
         self.parameters['kd']['gbar']
@@ -541,6 +544,7 @@ class SimplifiedNeuron (Neuron):
         for sec in it.chain(self.soma,self.proximal,self.distal,self.basal):
             sec.insert('cacum')
             sec.eca = 120
+            sec.cainf_cad = 50e-6
             for seg in sec:
                 seg.cacum.depth = seg.diam/2
 

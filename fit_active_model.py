@@ -13,6 +13,7 @@ from CA3.utils import *
 from CA3.utils.graphics import *
 from scipy.interpolate import interp1d,UnivariateSpline
 from neuron import h
+h.celsius = 36
 
 SAVE_DEBUG_INFO = False
 

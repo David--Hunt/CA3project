@@ -8,6 +8,7 @@
 *.pdf
 *.ipynb
 .ipynb_checkpoints
+*.nb
 logs
 misc
 x86_64

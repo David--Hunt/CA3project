@@ -1,4 +1,7 @@
 
 from utils import *
-import graphics
+try:
+    import graphics
+except:
+    pass
 import h5

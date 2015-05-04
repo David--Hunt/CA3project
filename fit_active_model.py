@@ -13,11 +13,6 @@ from CA3.utils import *
 from CA3.utils.graphics import *
 from scipy.interpolate import interp1d,UnivariateSpline
 from neuron import h
-from emoo import Emoo
-from emoo import mpi4py_loaded
-if mpi4py_loaded:
-    from mpi4py import MPI
-    processor_name = MPI.Get_processor_name()
 try:
     import matplotlib.pyplot as p
     set_rc_defaults()
@@ -413,6 +408,8 @@ def extract_accommodation_index(spike_times):
     return np.mean(A),np.std(A)
 
 def optimize():
+    from emoo import Emoo
+    from emoo import mpi4py_loaded
     # parse the command-line arguments
     parser = arg.ArgumentParser(description='Fit a multicompartmental neuron model to data.')
     parser.add_argument('config_file', type=str, action='store', help='Path of the H5 file containing the results of the optimization of passive properties')

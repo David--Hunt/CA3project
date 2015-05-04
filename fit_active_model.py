@@ -13,11 +13,6 @@ from CA3.utils import *
 from CA3.utils.graphics import *
 from scipy.interpolate import interp1d,UnivariateSpline
 from neuron import h
-try:
-    import matplotlib.pyplot as p
-    set_rc_defaults()
-except:
-    pass
 
 SAVE_DEBUG_INFO = False
 
@@ -687,6 +682,9 @@ def display_isi(t, V, ephys_data):
     remove_border()
     
 def display():
+    global p
+    import matplotlib.pyplot as p
+    set_rc_defaults()
     parser = arg.ArgumentParser(description='Fit the parameters of a reduced morphology to electrophysiological data')
     parser.add_argument('filename', type=str, action='store', help='Path of the configuration file to use.')
     args = parser.parse_args(args=sys.argv[2:])

@@ -544,9 +544,13 @@ class SimplifiedNeuron (Neuron):
         for sec in it.chain(self.soma,self.proximal,self.distal,self.basal):
             sec.insert('cacum')
             sec.eca = 120
-            sec.cainf_cad = 50e-6
+            sec.cai0_cacum = 50e-6
             for seg in sec:
-                seg.cacum.depth = seg.diam/2
+                seg.cacum.depth = min([0.1,seg.diam/2])
+            try:
+                sec.tau_cacum = self.parameters['ca']['tau']
+            except:
+                pass
 
     def insert_calcium_current(self, label):
         self.parameters[label]['gbar']

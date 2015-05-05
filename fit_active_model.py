@@ -408,7 +408,7 @@ def optimize():
     from emoo import mpi4py_loaded
     # parse the command-line arguments
     parser = arg.ArgumentParser(description='Fit a multicompartmental neuron model to data.')
-    parser.add_argument('config_file', type=str, action='store', help='Path of the H5 file containing the results of the optimization of passive properties')
+    parser.add_argument('config_file', type=str, action='store', help='Configuration file')
     parser.add_argument('--single-compartment', action='store_true', help='Use a single-compartment neuron model')
     args = parser.parse_args(args=sys.argv[2:])
 
@@ -487,6 +487,10 @@ def optimize():
                     variables.append([section + '_' + var[0], a[0], a[1]])
     except:
         print('No active conductances in the model.')
+
+    if len(dendritic_modes) == 0 and not args.single_compartment:
+        print('No dendritic mode specified in a multi-compartment mode.')
+        sys.exit(1)
 
     # load the data relative to the optimization of the passive properties
     data = CA3.utils.h5.load_h5_file(passive_opt_file)

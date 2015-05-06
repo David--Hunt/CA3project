@@ -28,8 +28,8 @@ PARAMETER {
 NEURON {
 	SUFFIX km
 	USEION k READ ek WRITE ik
-        RANGE  gbar,ik, sh
-      GLOBAL inf, tau
+        RANGE  gbar,ik,sh,gkm
+	GLOBAL inf, tau
 }
 
 STATE {
@@ -38,6 +38,7 @@ STATE {
 
 ASSIGNED {
 	ik (mA/cm2)
+        gkm  		(mho/cm2)
         inf
 	tau
         taua
@@ -52,7 +53,8 @@ INITIAL {
 
 BREAKPOINT {
 	SOLVE state METHOD cnexp
-	ik = gbar*m^st*(v-ek)
+	gkm = gbar*m^st
+	ik = gkm*(v-ek)
 }
 
 

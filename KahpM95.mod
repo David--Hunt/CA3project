@@ -6,7 +6,7 @@ NEURON {
 	SUFFIX KahpM95
 	USEION k READ ek WRITE ik
         USEION ca READ cai
-        RANGE  gbar,ik, gkahp
+        RANGE  gbar,ik,gkahp
         GLOBAL inf,tau
 }
 

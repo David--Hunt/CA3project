@@ -566,7 +566,7 @@ def optimize():
                                                                                                  spike_shape_error_window[1][1]],
                                                                                       interp_dt=1./resampling_frequency)
     # find the firing rate corresponding to the maximum value of the injected current
-    idx, = np.where(np.max(ephys_data['I'],axis=1) == np.max(ephys_data['I'][-1,:]))
+    idx = np.where(np.max(ephys_data['I'],axis=1) == np.max(ephys_data['I'][-1,:]))[0][0]
     ephys_data['spike_rate'] = {}
     ephys_data['spike_rate']['mean'],ephys_data['spike_rate']['std'] = extract_spike_rate(tp[idx], ephys_data['dur'])
     # find the accommodation index

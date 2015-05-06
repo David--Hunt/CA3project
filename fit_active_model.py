@@ -327,9 +327,14 @@ def objectives_error(parameters):
         tth,Vth = extractAPThreshold(t, V, threshold=ap_threshold, tpeak=tp, model=True)
         logger('end', 'extractAPThreshold', token)
         logger('start', 'extractAPHalfWidth', token)
-        Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=ap_threshold, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
-        logger('end', 'extractAPHalfWidth', token)
-        if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,width,token):
+        try:
+            Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=ap_threshold, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
+            ok = True
+            logger('end', 'extractAPHalfWidth', token)
+        except:
+            ok = False
+            logger('end', 'extractAPHalfWidth+++', token)
+        if ok and check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,width,token):
             if SAVE_DEBUG_INFO:
                 opts = {'%s_spikes' % token: {'tp': tp, 'Vp': Vp, 'tth': tth, 'Vth': Vth}}
                 CA3.utils.h5.save_h5_file(h5_filename, 'a', **opts)

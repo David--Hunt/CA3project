@@ -468,8 +468,8 @@ class SimplifiedNeuron (Neuron):
         else:
             sections = self.soma
         for sec in sections:
-            sec.insert('napinst')
-            sec.gbar_napinst = self.parameters['nap']['gbar'] * PSUM2_TO_SCM2
+            sec.insert('nap')
+            sec.gbar_nap = self.parameters['nap']['gbar'] * PSUM2_TO_SCM2
         #for sec in h.allsec():
         #    if sec in self.soma or (self.has_axon and sec in self.axon):
         #        sec.insert('napinst')
@@ -553,10 +553,16 @@ class SimplifiedNeuron (Neuron):
                 pass
 
     def insert_calcium_current(self, label):
-        self.parameters[label]['gbar']
-        for sec in it.chain(self.soma,self.proximal,self.distal,self.basal):
-            sec.insert(label)
-            sec.__setattr__('g{0}bar_{0}'.format(label), self.parameters[label]['gbar'])
+        if label == 'cat':
+            self.parameters[label]['gbar_distal']
+            for sec in self.distal:
+                sec.insert(label)
+                sec.__setattr__('g{0}bar_{0}'.format(label), self.parameters[label]['gbar_distal'])
+        else:
+            self.parameters[label]['gbar']
+            for sec in it.chain(self.soma,self.proximal,self.distal,self.basal):
+                sec.insert(label)
+                sec.__setattr__('g{0}bar_{0}'.format(label), self.parameters[label]['gbar'])
 
 class SingleCompartmentNeuron (SimplifiedNeuron):
     def __init__(self, parameters, with_axon=False, with_active=True):

@@ -529,6 +529,8 @@ def optimize():
     if args.single_compartment:
         model_type = 'single_compartment'
         ReducedNeuron = CA3.cells.SingleCompartmentNeuron
+    elif os.path.basename(passive_opt_file) == 'DH070613-1-.Edit.scaled_20141223-194818.h5':
+        ReducedNeuron = CA3.cells.SimplifiedNeuron
     elif data['model_type'].lower() == 'thorny':
         model_type = 'thorny'
         ReducedNeuron = CA3.cells.ThornyNeuron

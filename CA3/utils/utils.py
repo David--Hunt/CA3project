@@ -293,6 +293,8 @@ def run(tend,V0=-65,temperature=36):
     h.celsius = temperature
     h.cvode_active(1)
     h.cvode.maxstep(10)
+    h.cvode.rtol(1e-6)
+    h.cvode.atol(1e-6)
     h.tstop = tend
     h.run()
         

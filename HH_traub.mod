@@ -68,7 +68,7 @@ ASSIGNED {
 
 
 BREAKPOINT {
-	SOLVE states
+	SOLVE states METHOD cnexp
 	ina = gnabar * m*m*m*h * (v - ena)
 	ik = gkbar * n*n*n*n * (v - ek)
 }

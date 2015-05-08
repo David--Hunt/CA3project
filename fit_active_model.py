@@ -75,6 +75,8 @@ def make_simplified_neuron(parameters):
                 pars[key] = {value: v}
             if key in dendritic_modes:
                 pars[key]['dend_mode'] = dendritic_modes[key]
+    if 'nat' in pars and not 'vtraub_soma_offset' in pars['nat']:
+        pars['nat']['vtraub_soma_offset'] = 10.
     if 'nat_gbar_ais' in parameters and 'nat_gbar_hillock' in parameters:
         with_axon = True
         # the passive properties of the axon are the same as the soma
@@ -87,6 +89,10 @@ def make_simplified_neuron(parameters):
             pars['axon'].pop('diam')
         except:
             pass
+        if not 'vtraub_ais_offset' in pars['nat']:
+            pars['nat']['vtraub_ais_offset'] = pars['nat']['vtraub_soma_offset']
+        if not 'vtraub_hillock_offset' in pars['nat']:
+            pars['nat']['vtraub_hillock_offset'] = pars['nat']['vtraub_soma_offset']
     return ReducedNeuron(pars, with_axon, with_active)
 
 def extract_average_trace(t,x,events,window,interp_dt=-1,token=None):

@@ -362,12 +362,6 @@ class SimplifiedNeuron (Neuron):
                 print('Not inserting N-type calcium current.')
             pass
 
-    def set_vtraub(self, sec):
-        try:
-            sec.vtraub_hh2 = self.parameters['vtraub']
-        except:
-            sec.vtraub_hh2 += 10.
-
     def compute_gbar_at_position(self, distance_from_soma, parameters, max_distance=None):
         if parameters['dend_mode'] == 'passive':
             return 0.
@@ -405,16 +399,20 @@ class SimplifiedNeuron (Neuron):
             sec.insert('hh2')
             sec.ena = 55
             sec.ek = -90
-            self.set_vtraub(sec)
+            if sec in self.soma:
+                sec.vtraub_hh2 += self.parameters['nat']['vtraub_soma_offset']
             sec.gnabar_hh2 = self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2
             sec.gkbar_hh2 = self.parameters['kdr']['gbar_soma'] * PSUM2_TO_SCM2
             if self.has_axon:
                 if sec is self.axon[0]:
                     sec.gnabar_hh2 = self.parameters['nat']['gbar_hillock'] * PSUM2_TO_SCM2
+                    sec.vtraub_hh2 += self.parameters['nat']['vtraub_hillock_offset']
                 elif sec is self.axon[1]:
                     sec.gnabar_hh2 = self.parameters['nat']['gbar_ais'] * PSUM2_TO_SCM2
-                else:
+                    sec.vtraub_hh2 += self.parameters['nat']['vtraub_ais_offset']
+                elif sec in self.axon:
                     sec.gnabar_hh2 = self.parameters['nat']['gbar_soma'] * PSUM2_TO_SCM2
+                    sec.vtraub_hh2 += self.parameters['nat']['vtraub_soma_offset']
 
         # sodium and potassium in the dendrites
         if len(self.basal) > 0:
@@ -431,7 +429,7 @@ class SimplifiedNeuron (Neuron):
                 sec.insert('hh2')
                 sec.ena = 55
                 sec.ek = -90
-                self.set_vtraub(sec)
+                sec.vtraub_hh2 += self.parameters['nat']['vtraub_soma_offset']
                 for seg in sec:
                     dst = h.distance(seg.x,sec=sec)
                     seg.hh2.gnabar = self.compute_gbar_at_position(dst, self.parameters['nat'], max_dist_Na)
@@ -452,7 +450,7 @@ class SimplifiedNeuron (Neuron):
                 sec.insert('hh2')
                 sec.ena = 55
                 sec.ek = -90
-                self.set_vtraub(sec)
+                sec.vtraub_hh2 += self.parameters['nat']['vtraub_soma_offset']
                 for seg in sec:
                     dst = h.distance(seg.x,sec=sec)
                     seg.hh2.gnabar = self.compute_gbar_at_position(dst, self.parameters['nat'], max_dist_Na)

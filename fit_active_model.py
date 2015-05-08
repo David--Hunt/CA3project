@@ -57,7 +57,6 @@ isi_error_power = 2
 
 def make_simplified_neuron(parameters):
     with_axon = False
-    with_active = True
     pars = copy.deepcopy(neuron_pars)
     for k,v in parameters.iteritems():
         if k == 'scaling':
@@ -92,11 +91,15 @@ def make_simplified_neuron(parameters):
             pars['axon'].pop('diam')
         except:
             pass
+        try:
+            pars['axon'].pop('area')
+        except:
+            pass
         if not 'vtraub_offset_ais' in pars['nat']:
             pars['nat']['vtraub_offset_ais'] = pars['nat']['vtraub_offset_soma']
         if not 'vtraub_offset_hillock' in pars['nat']:
             pars['nat']['vtraub_offset_hillock'] = pars['nat']['vtraub_offset_soma']
-    return ReducedNeuron(pars, with_axon, with_active)
+    return ReducedNeuron(pars, with_axon)
 
 def extract_average_trace(t,x,events,window,interp_dt=-1,token=None):
     logger('start','extract_average_trace',token)
@@ -153,8 +156,8 @@ def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100,
     if not token is None:
         logger('start', 'current_steps', token)
         if SAVE_DEBUG_INFO:
-            opts = {'%s' % token: {'parameters': neuron.parameters, 'has_active':neuron.has_active,
-                                   'has_axon': neuron.has_axon, 'neuron_type':neuron.__class__.__name__}}
+            opts = {'%s' % token: {'parameters': neuron.parameters, 'has_axon': neuron.has_axon,
+                                   'neuron_type':neuron.__class__.__name__}}
             CA3.utils.h5.save_h5_file(h5_filename, 'a', **opts)
     stim = h.IClamp(neuron.soma[0](0.5))
     stim.dur = dur
@@ -488,23 +491,26 @@ def optimize():
             sys.exit(1)
 
     try:
-        for section in cp.get('Variables','conductances').split(','):
-            for var in cp.items(section):
+        for cond in cp.get('Variables','conductances').split(','):
+            for entry in cp.items(cond):
                 try:
-                    a = map(float, var[1].split(','))
+                    a = map(float, entry[1].split(','))
                 except:
-                    if var[0] == 'dend_mode':
-                        dendritic_modes[section] = var[1]
+                    if entry[0] == 'dend_mode':
+                        dendritic_modes[cond] = entry[1]
                     else:
-                        print('Unknown key,value pair in section [%s]: %s,%s.' % (section,var[0],var[1]))
+                        print('Unknown key,value pair in section [%s]: %s,%s.' % (cond,entry[0],entry[1]))
                 else:
-                    variables.append([section + '_' + var[0], a[0], a[1]])
-    except:
+                    variables.append([cond + '_' + entry[0], a[0], a[1]])
+    except ConfigParser.NoSectionError:
+        print('Unknown conductance [%s]: fix your configuration file.' % cond)
+        sys.exit(0)
+    except ConfigParser.NoOptionError:
         print('No active conductances in the model.')
-
-    if len(dendritic_modes) == 0 and not args.single_compartment:
-        print('No dendritic mode specified in a multi-compartment mode.')
-        sys.exit(1)
+    else:
+        if len(dendritic_modes) == 0 and not args.single_compartment:
+            print('No dendritic mode specified in a multi-compartment mode.')
+            sys.exit(1)
 
     # load the data relative to the optimization of the passive properties
     data = CA3.utils.h5.load_h5_file(passive_opt_file)
@@ -732,11 +738,7 @@ def display():
     else:
         print('Unknown model type [%s].' % data['model_type'])
 
-    # find out whether the model contained active conductances and/or an axon
-    if 'nat_gbar_soma' in data['variables']:
-        with_active = True
-    else:
-        with_active = False
+    # find out whether the model contained an axon
     if 'nat_gbar_ais' in data['variables']:
         with_axon = True
     else:
@@ -885,7 +887,7 @@ def display():
                 pars['nat']['vtraub_offset_hillock'] = pars['nat']['vtraub_offset_soma']
 
         # construct the model
-        neuron = ctor(pars, with_axon, with_active)
+        neuron = ctor(pars, with_axon)
 
         # simulate the injection of currents into the model
         t,V = current_steps(neuron, data['ephys_data']['I_amplitudes'], data['ephys_data']['dt'][0],

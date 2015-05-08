@@ -23,10 +23,9 @@ def taper_section(sec, max_diam, min_diam):
         seg.diam = max_diam - seg.x * (max_diam - min_diam)
 
 class Neuron:
-    def __init__(self, parameters, with_axon=True, with_active=True):
+    def __init__(self, parameters, with_axon=True):
         self.parameters = parameters
         self.has_axon = with_axon
-        self.has_active = with_active
         self.soma = []
         self.basal = []
         self.proximal = []
@@ -37,15 +36,13 @@ class Neuron:
         self.compute_measures()
         self.compute_total_area()
         self.insert_passive_mech()
-        if self.has_active:
-            self.insert_active_mech()
+        self.insert_active_mech()
 
     def save_properties(self, filename=None):
         if filename is None:
             filename = h5.make_output_filename(self.__class__.__name__+'_properties','.h5')
         h5.save_h5_file(filename, parameters=self.parameters,
-                        has_active=self.has_active, has_axon=self.has_axon,
-                        neuron_type=self.__class__.__name__)
+                        has_axon=self.has_axon, neuron_type=self.__class__.__name__)
 
     def build_morphology(self):
         self.make_sections()
@@ -219,8 +216,8 @@ class Neuron:
     distal = property(get_distal, set_distal)
 
 class SimplifiedNeuron (Neuron):
-    def __init__(self, parameters, with_axon=True, with_active=True):
-        Neuron.__init__(self, parameters, with_axon, with_active)
+    def __init__(self, parameters, with_axon=True):
+        Neuron.__init__(self, parameters, with_axon)
 
     @classmethod
     def n_somatic_sections(cls):
@@ -305,62 +302,61 @@ class SimplifiedNeuron (Neuron):
                 self.axon[i].connect(self.axon[i-1], 1, 0)
         
     def insert_active_mech(self):
-        self.insert_fast_Na_and_delayed_rectifier_K()
-        self.insert_calcium_dynamics()
+        try:
+            self.insert_fast_Na_and_delayed_rectifier_K()
+        except:
+            if DEBUG:
+                print('Not inserting fast sodium and delayed rectifier potassium currents.')
+        try:
+            self.insert_calcium_dynamics()
+        except:
+            if DEBUG:
+                print('Not inserting calcium dynamics.')
         try:
             self.insert_persistent_Na()
         except:
             if DEBUG:
                 print('Not inserting persistent sodium current.')
-            pass
         try:
             self.insert_Im()
         except:
             if DEBUG:
                 print('Not inserting Im.')
-            pass
         try:
             self.insert_AHP_K()
         except:
             if DEBUG:
                 print('Not inserting potassium current responsible for AHP.')
-            pass
         try:
             self.insert_K_D()
         except:
             if DEBUG:
                 print('Not inserting K-D current.')
-            pass
         try:
             self.insert_A_type_K()
         except:
             if DEBUG:
                 print('Not inserting A-type potassium current.')
-            pass
         try:
             self.insert_Ih()
         except:
             if DEBUG:
                 print('Not inserting Ih.')
-            pass
         try:
             self.insert_calcium_current('cal')
         except:
             if DEBUG:
                 print('Not inserting L-type calcium current.')
-            pass
         try:
             self.insert_calcium_current('cat')
         except:
             if DEBUG:
                 print('Not inserting T-type calcium current.')
-            pass
         try:
             self.insert_calcium_current('can')
         except:
             if DEBUG:
                 print('Not inserting N-type calcium current.')
-            pass
 
     def compute_gbar_at_position(self, distance_from_soma, parameters, max_distance=None):
         if parameters['dend_mode'] == 'passive':
@@ -390,6 +386,7 @@ class SimplifiedNeuron (Neuron):
         return max(g*PSUM2_TO_SCM2,0)
 
     def insert_fast_Na_and_delayed_rectifier_K(self):
+        self.parameters['nat']
         # sodium and potassium in the soma and axon (if present)
         if self.has_axon:
             sections = [sec for sec in it.chain(self.soma,self.axon)]
@@ -539,6 +536,7 @@ class SimplifiedNeuron (Neuron):
                     print('gbar Ih @ x = %g: %g' % (h.distance(seg.x,sec=sec),seg.hd.ghdbar))
 
     def insert_calcium_dynamics(self):
+        self.parameters['ca']
         for sec in it.chain(self.soma,self.proximal,self.distal,self.basal):
             sec.insert('cacum')
             sec.eca = 120
@@ -563,13 +561,13 @@ class SimplifiedNeuron (Neuron):
                 sec.__setattr__('g{0}bar_{0}'.format(label), self.parameters[label]['gbar'])
 
 class SingleCompartmentNeuron (SimplifiedNeuron):
-    def __init__(self, parameters, with_axon=False, with_active=True):
+    def __init__(self, parameters, with_axon=False):
         for sec in 'basal','proximal','distal':
             try:
                 parameters['soma']['area'] += parameters[sec]['area']
             except:
                 pass
-        SimplifiedNeuron.__init__(self, parameters, False, with_active)
+        SimplifiedNeuron.__init__(self, parameters, False)
 
     @classmethod
     def n_somatic_sections(cls):
@@ -604,8 +602,8 @@ class SingleCompartmentNeuron (SimplifiedNeuron):
         pass
 
 class AThornyNeuron (SimplifiedNeuron):
-    def __init__(self, parameters, with_axon=True, with_active=True):
-        SimplifiedNeuron.__init__(self, parameters, with_axon, with_active)
+    def __init__(self, parameters, with_axon=True):
+        SimplifiedNeuron.__init__(self, parameters, with_axon)
 
     @classmethod
     def n_basal_sections(cls):
@@ -627,8 +625,8 @@ class AThornyNeuron (SimplifiedNeuron):
                 self.axon[i].connect(self.axon[i-1], 1, 0)
         
 class ThornyNeuron (SimplifiedNeuron):
-    def __init__(self, parameters, with_axon=True, with_active=True):
-        SimplifiedNeuron.__init__(self, parameters, with_axon, with_active)
+    def __init__(self, parameters, with_axon=True):
+        SimplifiedNeuron.__init__(self, parameters, with_axon)
 
     @classmethod
     def n_basal_sections(cls):
@@ -660,7 +658,7 @@ class ThornyNeuron (SimplifiedNeuron):
                 self.axon[i].connect(self.axon[i-1], 1, 0)
         
 class SWCNeuron (SimplifiedNeuron):
-    def __init__(self, parameters, with_axon=True, with_active=True, convert_to_3pt_soma=False):
+    def __init__(self, parameters, with_axon=True, convert_to_3pt_soma=False):
         if convert_to_3pt_soma:
             self.swc_filename = '.'.join(parameters['swc_filename'].split('.')[:-1]) + '_converted.swc'
             convert_morphology(parameters['swc_filename'], self.swc_filename)
@@ -668,7 +666,7 @@ class SWCNeuron (SimplifiedNeuron):
             self.swc_filename = parameters['swc_filename']
         parameters['swc_filename'] = os.path.abspath(self.swc_filename)
         parameters['convert_to_3pt_soma'] = convert_to_3pt_soma
-        SimplifiedNeuron.__init__(self, parameters, with_axon, with_active)
+        SimplifiedNeuron.__init__(self, parameters, with_axon)
 
     def make_sections(self):
         # load the tree structure that represents the morphology
@@ -779,8 +777,8 @@ class SWCNeuron (SimplifiedNeuron):
         return int(h.secname(sec=section).split('_')[-1])
 
 class SimplifiedNeuron3D (SimplifiedNeuron):
-    def __init__(self, parameters, with_active=True):
-        SimplifiedNeuron.__init__(self, parameters, with_active)
+    def __init__(self, parameters):
+        SimplifiedNeuron.__init__(self, parameters)
 
     def setup_topology(self):
         h.pt3dadd(0, 0, 0, 20, sec=self.soma[0])
@@ -827,7 +825,7 @@ def neuron_factory(filename):
         cls = SimplifiedNeuron3D
     else:
         raise Exception('Unknown neuron model: %s.' % data['neuron_type'])
-    return cls(data['parameters'], data['has_axon'], data['has_active'])
+    return cls(data['parameters'], data['has_axon'])
 
 def run_step_single(amplitude=0.5):
     parameters = {'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 10e3, 'area': 20000},
@@ -899,10 +897,10 @@ def run_step(amplitude=0.12):
     # Ih current
     #parameters['ih'] = {'gbar_soma': 1e-2, 'dend_scaling': 10., 'half_dist': 100., 'lambda': 30., 'dend_mode': 'sigmoidal'}
 
-    n = SimplifiedNeuron(parameters,with_axon=with_axon,with_active=True)
-    #n = AThornyNeuron(parameters,with_axon=True,with_active=True)
-    #n = ThornyNeuron(parameters,with_axon=True,with_active=True)
-    #n = SWCNeuron(parameters,with_axon=False,with_active=False,convert_to_3pt_soma=False)
+    n = SimplifiedNeuron(parameters,with_axon=with_axon)
+    #n = AThornyNeuron(parameters,with_axon=True)
+    #n = ThornyNeuron(parameters,with_axon=True)
+    #n = SWCNeuron(parameters,with_axon=False,convert_to_3pt_soma=False)
     #n.save_properties()
     h.topology()
     rec = make_voltage_recorders(n)

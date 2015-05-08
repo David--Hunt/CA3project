@@ -20,6 +20,9 @@ SAVE_DEBUG_INFO = False
 model_type = 'simplified'
 ReducedNeuron = CA3.cells.SimplifiedNeuron
 
+# default vtraub shift
+vtraub_offset = 10.
+
 # the list of objectives
 objectives = []
 
@@ -75,8 +78,8 @@ def make_simplified_neuron(parameters):
                 pars[key] = {value: v}
             if key in dendritic_modes:
                 pars[key]['dend_mode'] = dendritic_modes[key]
-    if 'nat' in pars and not 'vtraub_soma_offset' in pars['nat']:
-        pars['nat']['vtraub_soma_offset'] = 10.
+    if 'nat' in pars and not 'vtraub_offset_soma' in pars['nat']:
+        pars['nat']['vtraub_offset_soma'] = vtraub_offset
     if 'nat_gbar_ais' in parameters and 'nat_gbar_hillock' in parameters:
         with_axon = True
         # the passive properties of the axon are the same as the soma
@@ -89,10 +92,10 @@ def make_simplified_neuron(parameters):
             pars['axon'].pop('diam')
         except:
             pass
-        if not 'vtraub_ais_offset' in pars['nat']:
-            pars['nat']['vtraub_ais_offset'] = pars['nat']['vtraub_soma_offset']
-        if not 'vtraub_hillock_offset' in pars['nat']:
-            pars['nat']['vtraub_hillock_offset'] = pars['nat']['vtraub_soma_offset']
+        if not 'vtraub_offset_ais' in pars['nat']:
+            pars['nat']['vtraub_offset_ais'] = pars['nat']['vtraub_offset_soma']
+        if not 'vtraub_offset_hillock' in pars['nat']:
+            pars['nat']['vtraub_offset_hillock'] = pars['nat']['vtraub_offset_soma']
     return ReducedNeuron(pars, with_axon, with_active)
 
 def extract_average_trace(t,x,events,window,interp_dt=-1,token=None):
@@ -781,7 +784,7 @@ def display():
         opt = {'origin': 'lower', 'cmap': p.get_cmap('Greys'), 'interpolation': 'nearest'}
         if edges[-1] > 1000:
             coeff = 1e-3
-        elif np.abs(edges[-1]) < 1:
+        elif np.max(np.abs(edges)) < 0.001:
             coeff = 1e3
         else:
             coeff = 1
@@ -795,7 +798,7 @@ def display():
         else:
             p.ylabel(v[0])
         p.xticks(np.round(np.linspace(0,ngen,6)))
-        p.yticks(np.round(np.linspace(edges[0],edges[-1],5)*coeff))
+        p.yticks(np.linspace(edges[0],edges[-1],3)*coeff)
         remove_border()
     p.savefig(base_dir + '/variables.pdf')
 
@@ -864,15 +867,22 @@ def display():
                     pars[key] = {value: v}
                 if key in data['dendritic_modes']:
                     pars[key]['dend_mode'] = data['dendritic_modes'][key]
-        pars['axon'] = copy.deepcopy(pars['soma'])
-        try:
-            pars['axon'].pop('L')
-        except:
-            pass
-        try:
-            pars['axon'].pop('diam')
-        except:
-            pass
+        if 'nat' in pars and not 'vtraub_offset_soma' in pars['nat']:
+            pars['nat']['vtraub_offset_soma'] = vtraub_offset
+        if with_axon:
+            pars['axon'] = copy.deepcopy(pars['soma'])
+            try:
+                pars['axon'].pop('L')
+            except:
+                pass
+            try:
+                pars['axon'].pop('diam')
+            except:
+                pass
+            if not 'vtraub_offset_ais' in pars['nat']:
+                pars['nat']['vtraub_offset_ais'] = pars['nat']['vtraub_offset_soma']
+            if not 'vtraub_offset_hillock' in pars['nat']:
+                pars['nat']['vtraub_offset_hillock'] = pars['nat']['vtraub_offset_soma']
 
         # construct the model
         neuron = ctor(pars, with_axon, with_active)

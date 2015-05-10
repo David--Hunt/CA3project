@@ -116,8 +116,14 @@ def extract_average_trace(t,x,events,window,interp_dt=-1,token=None):
     X = np.zeros((sum([len(e) for e in events]),before+after+1))
     dX = np.zeros((sum([len(e) for e in events]),before+after+1))
     cnt = 0
+    # minimal required spike distance
+    min_spike_distance = 15. # [ms]
     for i in range(x.shape[0]):
-        for e in events[i]:
+        for j,e in enumerate(events[i]):
+            if (j > 0 and e-events[i][j-1] < min_spike_distance) or \
+                    (j < len(events[i])-1 and events[i][j+1]-e < min_spike_distance):
+                # ignore spikes in a burst for the computation of the average spike shape
+                continue
             k = np.round(e/dt)
             try:
                 X[cnt,:] = x[i,k-before:k+after+1]
@@ -565,7 +571,7 @@ def optimize():
     ephys_data['tbefore'] = ephys_data['t'][idx[0]]
     ephys_data['dur'] = ephys_data['t'][idx[-1]] - ephys_data['tbefore']
     ephys_data['tafter'] = ephys_data['t'][-1] - ephys_data['dur'] - ephys_data['tbefore']
-    # find the average spike shape: this makes sense only for regular spiking cells
+    # find the average spike shape
     tp = [ephys_data['tp'][str(i)] for i in range(ephys_data['V'].shape[0])]
     ephys_data['tavg'],ephys_data['Vavg'],ephys_data['dVavg'] = extract_average_trace(ephys_data['t'],ephys_data['V'],
                                                                                       tp,window=[spike_shape_error_window[0][0],

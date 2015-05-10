@@ -371,8 +371,8 @@ class SimplifiedNeuron (Neuron):
         # the gbar at the other extremum, i.e. the distal tip
         if 'gbar_distal' in parameters:
             gbar_1 = parameters['gbar_distal']
-        elif 'dend_scaling' in parameters:
-            gbar_1 = gbar_0 * parameters['dend_scaling']
+        elif 'scaling_dend' in parameters:
+            gbar_1 = gbar_0 * parameters['scaling_dend']
         else:
             gbar_1 = 0.
         if parameters['dend_mode'] == 'constant':
@@ -876,7 +876,7 @@ def run_step(amplitude=0.12):
     with_axon = False
     #parameters['nat'] = {'gbar_soma': 50, 'gbar_distal': 5, 'lambda': 50, 'dend_mode': 'exponential'}
     parameters['nat'] = {'gbar_soma': 100, 'dend_mode': 'linear'}
-    #parameters['nat'] = {'gbar_soma': 100, 'dend_scaling': 0.2, 'dend_mode': 'constant'}
+    #parameters['nat'] = {'gbar_soma': 100, 'scaling_dend': 0.2, 'dend_mode': 'constant'}
     #parameters['nat'] = {'gbar_soma': 100, 'dend_mode': 'passive'}
     if with_axon:
         parameters['nat']['gbar_hillock'] = 1000
@@ -895,7 +895,7 @@ def run_step(amplitude=0.12):
     # A-type potassium
     #parameters['kap'] = {'gbar': 10}
     # Ih current
-    #parameters['ih'] = {'gbar_soma': 1e-2, 'dend_scaling': 10., 'half_dist': 100., 'lambda': 30., 'dend_mode': 'sigmoidal'}
+    #parameters['ih'] = {'gbar_soma': 1e-2, 'scaling_dend': 10., 'half_dist': 100., 'lambda': 30., 'dend_mode': 'sigmoidal'}
 
     n = SimplifiedNeuron(parameters,with_axon=with_axon)
     #n = AThornyNeuron(parameters,with_axon=True)

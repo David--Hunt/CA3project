@@ -79,7 +79,7 @@ def make_simplified_neuron(parameters):
                 pars[key]['dend_mode'] = dendritic_modes[key]
     if 'nat' in pars and not 'vtraub_offset_soma' in pars['nat']:
         pars['nat']['vtraub_offset_soma'] = vtraub_offset
-    if 'nat_gbar_ais' in parameters and 'nat_gbar_hillock' in parameters:
+    if any(['ais' in k for k in parameters.keys()]) and any(['hillock' in k for k in parameters.keys()]):
         with_axon = True
         # the passive properties of the axon are the same as the soma
         pars['axon'] = pars['soma'].copy()
@@ -95,6 +95,10 @@ def make_simplified_neuron(parameters):
             pars['axon'].pop('area')
         except:
             pass
+        for key in 'scaling_hillock','scaling_ais':
+            if key in pars['nat']:
+                factor = pars['nat'].pop(key)
+                pars['nat']['gbar_'+key[8:]] = factor * parameters['nat_gbar_soma']
         if not 'vtraub_offset_ais' in pars['nat']:
             pars['nat']['vtraub_offset_ais'] = pars['nat']['vtraub_offset_soma']
         if not 'vtraub_offset_hillock' in pars['nat']:

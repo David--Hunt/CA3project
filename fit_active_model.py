@@ -737,7 +737,7 @@ def display():
         print('Unknown model type [%s].' % data['model_type'])
 
     # find out whether the model contained an axon
-    if 'nat_gbar_ais' in data['variables']:
+    if 'nat_gbar_ais' in data['variables'] or 'nat_scaling_ais' in data['variables']:
         with_axon = True
     else:
         with_axon = False
@@ -879,6 +879,14 @@ def display():
                 pars['axon'].pop('diam')
             except:
                 pass
+            try:
+                pars['axon'].pop('area')
+            except:
+                pass
+            for key in 'nat_scaling_hillock','nat_scaling_ais':
+                if key in parameters:
+                    factor = pars['nat'].pop(key[4:])
+                    pars['nat']['gbar_'+key[12:]] = factor * parameters['nat_gbar_soma']
             if not 'vtraub_offset_ais' in pars['nat']:
                 pars['nat']['vtraub_offset_ais'] = pars['nat']['vtraub_offset_soma']
             if not 'vtraub_offset_hillock' in pars['nat']:

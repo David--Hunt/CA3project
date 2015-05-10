@@ -189,30 +189,19 @@ def hyperpolarizing_current_steps_error(t,V,Iinj,Vref):
     idx, = np.where(Iinj <= 0)
     return np.sum((V[idx,:]-Vref[idx,:])**2)
 
-def spike_shape_error(t,V,tp,Vth,window=spike_shape_error_window,token=None):
-    flat_mean = lambda x: np.mean([z for y in x for z in y])
+def spike_shape_error(t,V,tp,window=spike_shape_error_window,token=None):
     logger('start','spike_shape_error',token)
     if np.isscalar(window[0]):
         window = [window]
     m = min([w[0] for w in window])
     M = max([w[1] for w in window])
     tavg,Vavg,dVavg = extract_average_trace(t,V,tp,[m,M],interp_dt=1./resampling_frequency,token=token)
-    # the voltage threshold for the ephys data
-    ref_thresh = flat_mean(ephys_data['Vth'])
-    # the voltage threshold for the simulated data
-    thresh = flat_mean(Vth)
     err = []
     for w in window:
         idx, = np.where((ephys_data['tavg']>=w[0]) & (ephys_data['tavg']<=w[1]))
         jdx, = np.where((tavg>=w[0]) & (tavg<=w[1]))
-        err.append(
-            np.sum(
-                ( (Vavg[jdx]-thresh) - (ephys_data['Vavg'][idx]-ref_thresh) )**2
-                )
-            + 0.1*np.sum(
-                (dVavg[jdx] - ephys_data['dVavg'][idx])**2
-                )
-            )
+        err.append(np.sum((Vavg[jdx] - ephys_data['Vavg'][idx])**2) + \
+                       0.1*np.sum((dVavg[jdx] - ephys_data['dVavg'][idx])**2))
     logger('end','spike_shape_error',token)
     return err
 
@@ -355,7 +344,7 @@ def objectives_error(parameters):
             if 'isi' in objectives:
                 measures['isi'] = isi_error(tp)
             if 'spike_onset' in objectives or 'spike_offset' in objectives:
-                err = spike_shape_error(t,V,tp,Vth,spike_shape_error_window,token)
+                err = spike_shape_error(t,V,tp,spike_shape_error_window,token)
                 if 'spike_onset' in objectives:
                     measures['spike_onset'] = err[0]
                 if 'spike_offset' in objectives:
@@ -666,21 +655,20 @@ def display_spike(t, V, ephys_data, wndw, title):
     remove_border()
 
     p.axes([0.4,0.2,0.225,0.7])
-    p.plot(ephys_data['tavg'],ephys_data['Vavg']-np.mean([z for y in ephys_data['Vth'].values() for z in y]),'k')
-    p.plot(tavg, Vavg-np.mean([z for y in Vth for z in y]), 'r')
-    p.plot(wndw,[0,0],'--',color=[.6,.6,.6])
+    p.plot(ephys_data['tavg'],ephys_data['Vavg'],'k')
+    p.plot(tavg,Vavg,'r')
     p.xlim(wndw)
-    p.ylim([-20,100])
+    p.ylim([-70,50])
     p.xticks(np.linspace(wndw[0],wndw[1],3))
-    p.yticks([-20,20,60,100])
+    p.yticks([-70,-30,10,50])
     p.xlabel('Time (ms)')
-    p.ylabel('Vm - AP threshold (mV)')
+    p.ylabel('Vm (mV)')
     p.title(title)
     remove_border()
 
     p.axes([0.75,0.2,0.2,0.7])
     p.plot(ephys_data['tavg'],ephys_data['dVavg'],'k')
-    p.plot(tavg, dVavg, 'r')
+    p.plot(tavg,dVavg,'r')
     p.xlim(wndw)
     p.ylim([-200,500])
     p.xticks(np.linspace(wndw[0],wndw[1],3))
@@ -894,7 +882,6 @@ def display():
                             data['ephys_data']['dur'], data['ephys_data']['tbefore'],
                             data['ephys_data']['tafter'], np.mean(data['ephys_data']['V'][:,0]))
         tp,Vp = CA3.utils.extractAPPeak(t,V,threshold=ap_threshold,min_distance=1)
-        tth,Vth = CA3.utils.extractAPThreshold(t,V,threshold=ap_threshold,tpeak=tp,model=True)
         global ephys_data
         if obj == 'hyperpolarizing_current_steps':
             err = hyperpolarizing_current_steps_error(t,V,data['ephys_data']['I_amplitudes'],data['ephys_data']['V'])
@@ -902,13 +889,13 @@ def display():
             ephys_data = {'Vth': [data['ephys_data']['Vth']['%04d'%i] for i in range(len(data['ephys_data']['Vth']))]}
             for k in 'tavg','Vavg','dVavg':
                 ephys_data[k] = data['ephys_data'][k]
-            err = spike_shape_error(t,V,tp,Vth,window=spike_shape_error_window)
+            err = spike_shape_error(t,V,tp,window=spike_shape_error_window)
             err = err[0]
         elif obj == 'spike_offset':
             ephys_data = {'Vth': [data['ephys_data']['Vth']['%04d'%i] for i in range(len(data['ephys_data']['Vth']))]}
             for k in 'tavg','Vavg','dVavg':
                 ephys_data[k] = data['ephys_data'][k]
-            err = spike_shape_error(t,V,tp,Vth,window=spike_shape_error_window)
+            err = spike_shape_error(t,V,tp,window=spike_shape_error_window)
             err = err[1]
         elif obj == 'isi':
             tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)

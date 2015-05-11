@@ -46,7 +46,7 @@ def make_detailed_neuron(filename, proximal_limit):
                   'basal': {'Ra': 100., 'El': -70.},
                   'proximal_limit': proximal_limit,
                   'swc_filename': filename}
-    return CA3.cells.SWCNeuron(parameters, with_axon=False, with_active=False, convert_to_3pt_soma=False)
+    return CA3.cells.SWCNeuron(parameters, with_axon=False, convert_to_3pt_soma=False)
     
 def make_simplified_neuron(pars, detailed_neuron):
     parameters = {'scaling': 1,
@@ -66,7 +66,7 @@ def make_simplified_neuron(pars, detailed_neuron):
         parameters['distal']['L'] = pars['L_distal']
     else:
         parameters['distal']['L'] = np.max(detailed_neuron.distal_distances) - np.max(detailed_neuron.proximal_distances)
-    return ReducedNeuron(parameters, with_axon=False, with_active=False)
+    return ReducedNeuron(parameters, with_axon=False)
 
 def voltage_deflection(neuron, amp=-0.5, dur=500, delay=100):
     stim = h.IClamp(neuron.soma[0](0.5))

@@ -12,6 +12,7 @@ import CA3
 from CA3.utils import *
 from CA3.utils.graphics import *
 from scipy.interpolate import interp1d,UnivariateSpline
+from scipy.optimize import curve_fit
 from neuron import h
 h.celsius = 36
 
@@ -23,8 +24,14 @@ ReducedNeuron = CA3.cells.SimplifiedNeuron
 # default vtraub shift
 vtraub_offset = 10.
 
+# the optimization mode
+optimization_mode = ''
+
 # the list of objectives
 objectives = []
+
+# the list of features
+features = {}
 
 # the list of variables to optimize
 variables = []
@@ -194,6 +201,12 @@ def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100,
         logger('end', 'current_steps', token)
     return T,V
 
+# The following error measures are the ones used in
+#
+# Bahl, A., Stemmler, M. B., Herz, A. V. M., & Roth, A. (2012).
+# Automated optimization of a reduced layer 5 pyramidal cell model based on experimental data.
+# Journal of Neuroscience Methods, 210(1), 22-34.
+#
 def hyperpolarizing_current_steps_error(t,V,Iinj,Vref):
     #### ===>>> Iinj is an array of values, not a matrix like V and Vref
     idx, = np.where(Iinj <= 0)
@@ -234,6 +247,12 @@ def isi_error(tp):
         return 1e10
     return err
 
+# The following error measures are the ones used in
+#
+# Druckmann, S., Banitt, Y., Gidon, A., Schuermann, F., Markram, H., & Segev, I. (2007).
+# A novel multiple objective optimization framework for constraining conductance-based neuron models by experimental data.
+# Frontiers in Neuroscience, 1(1), 7-18.
+#
 def spike_rate_error(tp, dur):
     import pdb
     pdb.set_trace()
@@ -254,6 +273,17 @@ def AHP_depth_error(Vahp):
 
 def AP_width_error(width):
     return 0
+
+# The following error measures employ features that have been extracted from
+# CA3 experimental data
+def input_resistance_error(value):
+    return np.abs(features['input_resistance']['mean'] - value) / features['input_resistance']['std']
+
+def time_constant_error(value):
+    return np.abs(features['time_constant']['mean'] - value) / features['time_constant']['std']
+
+def Vm_rest_error(value):
+    return np.abs(features['Vm_rest']['mean'] - value) / features['Vm_rest']['std']
 
 def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
     retval = True
@@ -311,6 +341,73 @@ def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
                 break
     logger('end','check_prerequisites',token)
     return retval
+
+def features_error(parameters):
+    try:
+        features_error.ncalls += 1
+    except:
+        features_error.__dict__['ncalls'] = 1
+    token = int(1e9 * np.random.uniform())
+    logger('start', 'features_error', token)
+    # build the neuron with the current parameters
+    neuron = make_simplified_neuron(parameters)
+    I_amplitudes = []    # [nA]
+    dt = 0.05            # [ms]
+    dur = 500.           # [ms]
+    tbefore = 500.       # [ms]
+    tafter = 100.        # [ms]
+    V0 = -65.            # [mV]
+    if 'input_resistance' in features or 'time_constant' in features:
+        I_amplitudes.append(-0.2)
+    if 'Vm_rest' in features:
+        I_amplitudes.append(0)
+    # simulate the injection of current steps into the neuron
+    t,V = current_steps(neuron, I_amplitudes, dt, dur, tbefore, tafter, V0, token)
+    # extract significant features from the traces
+    logger('start', 'extractAPPeak', token)
+    tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
+    logger('end', 'extractAPPeak', token)
+
+    measures = {}
+    for obj in objectives:
+        measures[obj] = 100
+
+    if 'input_resistance' in features:
+        # extract the input resistance
+        i, = np.where(np.array(I_amplitudes) < 0)
+        idx, = np.where((t>tbefore-200) & (t<tbefore))
+        jdx, = np.where((t>tbefore+dur-200) & (t<tbefore+dur))
+        if np.std(V[i,idx]) < 0.1 and np.std(V[i,jdx]) < 0.1:
+            Vrest = np.mean(V[i,idx])
+            Vstep = np.mean(V[i,jdx])
+            Rm = (Vrest-Vstep) / (-I_amplitudes[i])
+            measures['input_resistance'] = input_resistance_error(Rm)
+    if 'time_constant' in features:
+        # extract the time constant
+        i, = np.where(np.array(I_amplitudes) < 0)
+        idx, = np.where((t>tbefore) & (t<tbefore+300))
+        if np.argmax(V[i,idx]) == 0:
+            x = t[idx] - t[idx[0]]
+            y = V[i,idx] - np.min(V[i,idx])
+            popt,pcov = curve_fit(lambda x,a,tau: a*np.exp(-x/tau), x, y, p0=(y[0],20))
+            measures['time_constant'] = time_constant_error(popt[1])
+    if 'Vm_rest' in features:
+        # extract the resting Vm
+        i, = np.where(np.array(I_amplitudes) == 0)
+        idx, = np.where((t>tbefore-200) & (t<tbefore))
+        if np.std(V[i,idx]) < 0.1:
+            Vrest = np.mean(V[i,idx])
+            measures['Vm_rest'] = Vm_rest_error(Vrest)
+
+    #import pylab as p
+    #for v in V:
+    #    p.plot(t,v,'k')
+    #p.xlabel('Time (ms)')
+    #p.ylabel('Membrane voltage (mV)')
+    #p.show()
+
+    logger('end', 'features_error ' + str(measures), token)
+    return measures
 
 def objectives_error(parameters):
     try:
@@ -445,16 +542,8 @@ def optimize():
         print('%s: no such file.' % passive_opt_file)
         sys.exit(1)
 
-    try:
-        data_file = cp.get('Optimization','data_file')
-    except:
-        print('Option [Optimization/data_file] missing. It should contain the path of the file containing the electrophysiological data.')
-        sys.exit(1)
-    if not os.path.isfile(data_file):
-        print('%s: no such file.' % data_file)
-        sys.exit(1)
-
-    try:
+    global optimization_mode
+    if 'objectives' in [_[0] for _ in cp.items('Optimization')]:
         for obj in cp.get('Optimization','objectives').split(','):
             objectives.append(obj)
             if obj in ('spike_onset','spike_offset'):
@@ -465,14 +554,30 @@ def optimize():
                     spike_shape_error_window[idx] = map(float, cp.get(obj,'window').split(','))
                 except:
                     pass
-    except:
-        print('Option [Optimization/objectives] missing. You must specify at least one function to optimize.')
+        try:
+            data_file = cp.get('Optimization','data_file')
+        except:
+            print('Option [Optimization/data_file] missing. It should contain the path of the file containing the electrophysiological data.')
+            sys.exit(1)
+        if not os.path.isfile(data_file):
+            print('%s: no such file.' % data_file)
+            sys.exit(1)
+        optimization_mode = 'objectives'
+    elif 'features' in [_[0] for _ in cp.items('Optimization')]:
+        for feat in cp.get('Optimization','features').split(','):
+            features[feat] = {'mean': cp.getfloat(feat,'mean'), 'std': cp.getfloat(feat,'std')}
+            objectives.append(feat)
+        optimization_mode = 'features'
+    else:
+        print('Either [Optimization/objectives] or [Optimization/features] must be present in the configuration file.')
         sys.exit(1)
-    if 'spike_rate' in objectives or 'accommodation_index' in objectives or \
-            'latency' in objectives or 'ap_overshoot' in objectives or \
-            'ahp_depth' in objectives or 'ap_width' in objectives:
-        print('Not fully implemented yet.')
-        sys.exit(0)
+
+    # still to be implemented
+    #if 'spike_rate' in objectives or 'accommodation_index' in objectives or \
+    #        'latency' in objectives or 'ap_overshoot' in objectives or \
+    #        'ahp_depth' in objectives or 'ap_width' in objectives:
+    #    print('Not fully implemented yet.')
+    #    sys.exit(0)
 
     for var in 'Cm','Rm','El':
         try:
@@ -560,49 +665,50 @@ def optimize():
             print('Command line switch --single-compartment conflicts with option [Variables/scaling].')
             sys.exit(1)
 
-    # load the ephys data to use in the optimization
-    global ephys_data
-    ephys_data = CA3.utils.h5.load_h5_file(data_file)
-    # transpose the data so that number of rows = number of trials
-    ephys_data['V'] = ephys_data['V'].transpose()
-    ephys_data['I'] = ephys_data['I'].transpose()
-    ephys_data['t'] = np.arange(ephys_data['V'].shape[1]) * ephys_data['dt']
-    # find the duration, beginning and end of the stimulation
-    i = 0
-    while np.min(ephys_data['I'][i,:] >= 0):
-        i += 1
-    idx, = np.where(ephys_data['I'][i,:] < 0)
-    ephys_data['tbefore'] = ephys_data['t'][idx[0]]
-    ephys_data['dur'] = ephys_data['t'][idx[-1]] - ephys_data['tbefore']
-    ephys_data['tafter'] = ephys_data['t'][-1] - ephys_data['dur'] - ephys_data['tbefore']
-    # find the average spike shape
-    tp = [ephys_data['tp'][str(i)] for i in range(ephys_data['V'].shape[0])]
-    ephys_data['tavg'],ephys_data['Vavg'],ephys_data['dVavg'] = extract_average_trace(ephys_data['t'],ephys_data['V'],
-                                                                                      tp,window=[spike_shape_error_window[0][0],
-                                                                                                 spike_shape_error_window[1][1]],
-                                                                                      interp_dt=1./resampling_frequency)
-    # find the firing rate corresponding to the maximum value of the injected current
-    idx = np.where(np.max(ephys_data['I'],axis=1) == np.max(ephys_data['I'][-1,:]))[0][0]
-    ephys_data['spike_rate'] = {}
-    ephys_data['spike_rate']['mean'],ephys_data['spike_rate']['std'] = extract_spike_rate(tp[idx], ephys_data['dur'])
-    # find the accommodation index
-    ephys_data['accommodation_index'] = {}
-    ephys_data['accommodation_index']['mean'],ephys_data['accommodation_index']['std'] = extract_accommodation_index(tp)
-    # find the current amplitudes
-    j = int((ephys_data['tbefore']+ephys_data['dur'])/2/ephys_data['dt'])
-    idx, = np.where(ephys_data['I'][:,j] <= 0)
-    # take only the current amplitudes <= 0 and the largest injected current
-    ephys_data['I_amplitudes'],idx = np.unique(ephys_data['I'][idx,j] * 1e-3, return_index=True)
-    if len(objectives) > 1 or objectives[0] != 'hyperpolarizing_current_steps':
-        # ... only if we're optimizing also spiking properties
-        ephys_data['I_amplitudes'] = np.append(ephys_data['I_amplitudes'], ephys_data['I'][-1,j]*1e-3)
-        idx = np.append(idx, ephys_data['I'].shape[0]-1)
-    ephys_data['V'] = ephys_data['V'][idx,:]
-    ephys_data['I'] = ephys_data['I'][idx,:]
-    n = len(ephys_data['I_amplitudes'])
-    for lbl in 'th','p','end','ahp','adp','half':
-        ephys_data['t'+lbl] = [ephys_data['t'+lbl][str(k)] for k in idx]
-        ephys_data['V'+lbl] = [ephys_data['V'+lbl][str(k)] for k in idx]
+    if optimization_mode == 'objectives':
+        # load the ephys data to use in the optimization
+        global ephys_data
+        ephys_data = CA3.utils.h5.load_h5_file(data_file)
+        # transpose the data so that number of rows = number of trials
+        ephys_data['V'] = ephys_data['V'].transpose()
+        ephys_data['I'] = ephys_data['I'].transpose()
+        ephys_data['t'] = np.arange(ephys_data['V'].shape[1]) * ephys_data['dt']
+        # find the duration, beginning and end of the stimulation
+        i = 0
+        while np.min(ephys_data['I'][i,:] >= 0):
+            i += 1
+        idx, = np.where(ephys_data['I'][i,:] < 0)
+        ephys_data['tbefore'] = ephys_data['t'][idx[0]]
+        ephys_data['dur'] = ephys_data['t'][idx[-1]] - ephys_data['tbefore']
+        ephys_data['tafter'] = ephys_data['t'][-1] - ephys_data['dur'] - ephys_data['tbefore']
+        # find the average spike shape
+        tp = [ephys_data['tp'][str(i)] for i in range(ephys_data['V'].shape[0])]
+        ephys_data['tavg'],ephys_data['Vavg'],ephys_data['dVavg'] = extract_average_trace(ephys_data['t'],ephys_data['V'],
+                                                                                          tp,window=[spike_shape_error_window[0][0],
+                                                                                                     spike_shape_error_window[1][1]],
+                                                                                          interp_dt=1./resampling_frequency)
+        # find the firing rate corresponding to the maximum value of the injected current
+        idx = np.where(np.max(ephys_data['I'],axis=1) == np.max(ephys_data['I'][-1,:]))[0][0]
+        ephys_data['spike_rate'] = {}
+        ephys_data['spike_rate']['mean'],ephys_data['spike_rate']['std'] = extract_spike_rate(tp[idx], ephys_data['dur'])
+        # find the accommodation index
+        ephys_data['accommodation_index'] = {}
+        ephys_data['accommodation_index']['mean'],ephys_data['accommodation_index']['std'] = extract_accommodation_index(tp)
+        # find the current amplitudes
+        j = int((ephys_data['tbefore']+ephys_data['dur'])/2/ephys_data['dt'])
+        idx, = np.where(ephys_data['I'][:,j] <= 0)
+        # take only the current amplitudes <= 0 and the largest injected current
+        ephys_data['I_amplitudes'],idx = np.unique(ephys_data['I'][idx,j] * 1e-3, return_index=True)
+        if len(objectives) > 1 or objectives[0] != 'hyperpolarizing_current_steps':
+            # ... only if we're optimizing also spiking properties
+            ephys_data['I_amplitudes'] = np.append(ephys_data['I_amplitudes'], ephys_data['I'][-1,j]*1e-3)
+            idx = np.append(idx, ephys_data['I'].shape[0]-1)
+        ephys_data['V'] = ephys_data['V'][idx,:]
+        ephys_data['I'] = ephys_data['I'][idx,:]
+        n = len(ephys_data['I_amplitudes'])
+        for lbl in 'th','p','end','ahp','adp','half':
+            ephys_data['t'+lbl] = [ephys_data['t'+lbl][str(k)] for k in idx]
+            ephys_data['V'+lbl] = [ephys_data['V'+lbl][str(k)] for k in idx]
 
     # initiate the Evolutionary Multiobjective Optimization
     n_individuals = cp.getint('Algorithm','n_individuals')
@@ -620,20 +726,29 @@ def optimize():
     d_etac = (etac_end - etac_start) / n_generations
     emoo.setup(eta_m_0=etam_start, eta_c_0=etac_start, p_m=p_m, finishgen=0, d_eta_m=d_etam, d_eta_c=d_etac)
 
-    emoo.get_objectives_error = objectives_error
+    if optimization_mode == 'objectives':
+        emoo.get_objectives_error = objectives_error
+    elif optimization_mode == 'features':
+        emoo.get_objectives_error = features_error
+    else:
+        print('Unknown optimization mode "%s".' % optimization_mode)
+        sys.exit(1)
     emoo.checkpopulation = check_population
-    
     emoo.evolution(generations=n_generations)
 
     if emoo.master_mode:
         CA3.utils.h5.save_h5_file(h5_filename, 'a', parameters={'etam_start': etam_start, 'etam_end': etam_end,
                                                                 'etac_start': etac_start, 'etac_end': etac_end,
                                                                 'p_m': p_m},
-                                  objectives=objectives, variables=variables, model_type=model_type,
-                                  h5_file=passive_opt_file, ephys_file=data_file, ephys_data=ephys_data,
+                                  variables=variables, model_type=model_type, objectives=objectives,
+                                  h5_file=passive_opt_file, optimization_mode=optimization_mode,
                                   neuron_pars=neuron_pars, ap_threshold=ap_threshold,
-                                  spike_shape_error_window=spike_shape_error_window,
                                   dendritic_modes=dendritic_modes)
+        if optimization_mode == 'objectives':
+            CA3.utils.h5.save_h5_file(h5_filename, 'a', ephys_file=data_file, ephys_data=ephys_data,
+                                      spike_shape_error_window=spike_shape_error_window)
+        elif optimization_mode == 'features':
+            CA3.utils.h5.save_h5_file(h5_filename, 'a', features=features)
         CA3.utils.h5.save_text_file_to_h5_file(h5_filename, args.config_file, 'a', 'config_file')
 
 def display_hyperpolarizing_current_steps(t, V, ephys_data):
@@ -761,13 +876,14 @@ def display():
         print('The best individual for objective "%s" is #%d with error = %g.' %
               (obj,best_individuals[obj],data['generations'][last][best_individuals[obj],data['columns'][obj]]))
 
-    try:
-        global spike_shape_error_window
-        spike_shape_error_window = data['spike_shape_error_window']
-    except:
-        pass
-    for i,pos in enumerate(['onset','offset']):
-        print('Spike %s window: [%.1f,%.1f] ms.' % (pos,spike_shape_error_window[i][0],spike_shape_error_window[i][1]))
+    if data['optimization_mode'] == 'objectives':
+        try:
+            global spike_shape_error_window
+            spike_shape_error_window = data['spike_shape_error_window']
+        except:
+            pass
+        for i,pos in enumerate(['onset','offset']):
+            print('Spike %s window: [%.1f,%.1f] ms.' % (pos,spike_shape_error_window[i][0],spike_shape_error_window[i][1]))
 
     # plot the evolution of the optimization variables
     nbins = 80
@@ -841,88 +957,89 @@ def display():
     else:
         got_errors = False
 
-    # plot the performance of the best individual for each objective
-    for obj in data['objectives']:
-        # build the parameters dictionary
-        pars = copy.deepcopy(data['neuron_pars'])
-        parameters = {}
-        for v in data['variables']:
-            parameters[v[0]] = data['generations'][last][best_individuals[obj],data['columns'][v[0]]]
-        for k,v in parameters.iteritems():
-            if k == 'scaling':
-                pars[k] = v
-            elif k == 'El':
-                for lbl in 'soma','proximal','distal','basal':
-                    pars[lbl][k] = v
-            elif k in ('Cm','Rm'):
-                pars['soma'][k] = v
-            elif k == 'vtraub':
-                pars[k] = v
-            else:
-                key = k.split('_')[0]
-                value = '_'.join(k.split('_')[1:])
+    if data['optimization_mode'] == 'objectives':
+        # plot the performance of the best individual for each objective
+        for obj in data['objectives']:
+            # build the parameters dictionary
+            pars = copy.deepcopy(data['neuron_pars'])
+            parameters = {}
+            for v in data['variables']:
+                parameters[v[0]] = data['generations'][last][best_individuals[obj],data['columns'][v[0]]]
+            for k,v in parameters.iteritems():
+                if k == 'scaling':
+                    pars[k] = v
+                elif k == 'El':
+                    for lbl in 'soma','proximal','distal','basal':
+                        pars[lbl][k] = v
+                elif k in ('Cm','Rm'):
+                    pars['soma'][k] = v
+                elif k == 'vtraub':
+                    pars[k] = v
+                else:
+                    key = k.split('_')[0]
+                    value = '_'.join(k.split('_')[1:])
+                    try:
+                        pars[key][value] = v
+                    except:
+                        pars[key] = {value: v}
+                    if key in data['dendritic_modes']:
+                        pars[key]['dend_mode'] = data['dendritic_modes'][key]
+            if 'nat' in pars and not 'vtraub_offset_soma' in pars['nat']:
+                pars['nat']['vtraub_offset_soma'] = vtraub_offset
+            if with_axon:
+                pars['axon'] = copy.deepcopy(pars['soma'])
                 try:
-                    pars[key][value] = v
+                    pars['axon'].pop('L')
                 except:
-                    pars[key] = {value: v}
-                if key in data['dendritic_modes']:
-                    pars[key]['dend_mode'] = data['dendritic_modes'][key]
-        if 'nat' in pars and not 'vtraub_offset_soma' in pars['nat']:
-            pars['nat']['vtraub_offset_soma'] = vtraub_offset
-        if with_axon:
-            pars['axon'] = copy.deepcopy(pars['soma'])
-            try:
-                pars['axon'].pop('L')
-            except:
-                pass
-            try:
-                pars['axon'].pop('diam')
-            except:
-                pass
-            try:
-                pars['axon'].pop('area')
-            except:
-                pass
-            for key in 'nat_scaling_hillock','nat_scaling_ais':
-                if key in parameters:
-                    factor = pars['nat'].pop(key[4:])
-                    pars['nat']['gbar_'+key[12:]] = factor * parameters['nat_gbar_soma']
-            if not 'vtraub_offset_ais' in pars['nat']:
-                pars['nat']['vtraub_offset_ais'] = pars['nat']['vtraub_offset_soma']
-            if not 'vtraub_offset_hillock' in pars['nat']:
-                pars['nat']['vtraub_offset_hillock'] = pars['nat']['vtraub_offset_soma']
+                    pass
+                try:
+                    pars['axon'].pop('diam')
+                except:
+                    pass
+                try:
+                    pars['axon'].pop('area')
+                except:
+                    pass
+                for key in 'nat_scaling_hillock','nat_scaling_ais':
+                    if key in parameters:
+                        factor = pars['nat'].pop(key[4:])
+                        pars['nat']['gbar_'+key[12:]] = factor * parameters['nat_gbar_soma']
+                if not 'vtraub_offset_ais' in pars['nat']:
+                    pars['nat']['vtraub_offset_ais'] = pars['nat']['vtraub_offset_soma']
+                if not 'vtraub_offset_hillock' in pars['nat']:
+                    pars['nat']['vtraub_offset_hillock'] = pars['nat']['vtraub_offset_soma']
 
-        # construct the model
-        neuron = ctor(pars, with_axon)
+            # construct the model
+            neuron = ctor(pars, with_axon)
 
-        # simulate the injection of currents into the model
-        t,V = current_steps(neuron, data['ephys_data']['I_amplitudes'], data['ephys_data']['dt'][0],
-                            data['ephys_data']['dur'], data['ephys_data']['tbefore'],
-                            data['ephys_data']['tafter'], np.mean(data['ephys_data']['V'][:,0]))
-        tp,Vp = CA3.utils.extractAPPeak(t,V,threshold=ap_threshold,min_distance=1)
-        global ephys_data
-        if obj == 'hyperpolarizing_current_steps':
-            err = hyperpolarizing_current_steps_error(t,V,data['ephys_data']['I_amplitudes'],data['ephys_data']['V'])
-        elif obj == 'spike_onset':
-            ephys_data = {'Vth': [data['ephys_data']['Vth']['%04d'%i] for i in range(len(data['ephys_data']['Vth']))]}
-            for k in 'tavg','Vavg','dVavg':
-                ephys_data[k] = data['ephys_data'][k]
-            err = spike_shape_error(t,V,tp,window=spike_shape_error_window)
-            err = err[0]
-        elif obj == 'spike_offset':
-            ephys_data = {'Vth': [data['ephys_data']['Vth']['%04d'%i] for i in range(len(data['ephys_data']['Vth']))]}
-            for k in 'tavg','Vavg','dVavg':
-                ephys_data[k] = data['ephys_data'][k]
-            err = spike_shape_error(t,V,tp,window=spike_shape_error_window)
-            err = err[1]
-        elif obj == 'isi':
-            tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
-            ephys_data = {'tp': [data['ephys_data']['tp']['%04d'%i] for i in range(len(data['ephys_data']['tp']))]}
-            err = isi_error(tp)
-        print('%s%s error: %g.' % (obj[0].upper(),obj[1:].replace('_',' '),err))
+            # simulate the injection of currents into the model
+            t,V = current_steps(neuron, data['ephys_data']['I_amplitudes'], data['ephys_data']['dt'][0],
+                                data['ephys_data']['dur'], data['ephys_data']['tbefore'],
+                                data['ephys_data']['tafter'], np.mean(data['ephys_data']['V'][:,0]))
+            tp,Vp = CA3.utils.extractAPPeak(t,V,threshold=ap_threshold,min_distance=1)
+            global ephys_data
+            if obj == 'hyperpolarizing_current_steps':
+                err = hyperpolarizing_current_steps_error(t,V,data['ephys_data']['I_amplitudes'],data['ephys_data']['V'])
+            elif obj == 'spike_onset':
+                ephys_data = {'Vth': [data['ephys_data']['Vth']['%04d'%i] for i in range(len(data['ephys_data']['Vth']))]}
+                for k in 'tavg','Vavg','dVavg':
+                    ephys_data[k] = data['ephys_data'][k]
+                err = spike_shape_error(t,V,tp,window=spike_shape_error_window)
+                err = err[0]
+            elif obj == 'spike_offset':
+                ephys_data = {'Vth': [data['ephys_data']['Vth']['%04d'%i] for i in range(len(data['ephys_data']['Vth']))]}
+                for k in 'tavg','Vavg','dVavg':
+                    ephys_data[k] = data['ephys_data'][k]
+                err = spike_shape_error(t,V,tp,window=spike_shape_error_window)
+                err = err[1]
+            elif obj == 'isi':
+                tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
+                ephys_data = {'tp': [data['ephys_data']['tp']['%04d'%i] for i in range(len(data['ephys_data']['tp']))]}
+                err = isi_error(tp)
+            print('%s%s error: %g.' % (obj[0].upper(),obj[1:].replace('_',' '),err))
 
-        globals()['display_' + obj](t,V,data['ephys_data'])
-        p.savefig(base_dir + '/' + obj + '.pdf')
+            globals()['display_' + obj](t,V,data['ephys_data'])
+            p.savefig(base_dir + '/' + obj + '.pdf')
 
     # LaTeX generation
     tex_file = os.path.basename(args.filename)[:-3] + '.tex'
@@ -1005,15 +1122,16 @@ def display():
             fid.write('solution for a particular objective.}\n')
             fid.write('\\end{figure}\n')
             fid.write('\n')
-        fid.write('\\subsection*{Cost functions}')
-        for obj in data['objectives']:
-            fid.write('\\begin{figure}[htb]\n')
-            fid.write('\\centering\n')
-            fid.write('\\includegraphics{%s/%s.pdf}\n' % (base_dir,obj))
-            fid.write('\\caption{%s%s error. Optimal parameters: %s.}\n' % (obj[0].upper(), obj[1:].replace('_',' '),
+        if data['optimization_mode'] == 'objectives':
+            fid.write('\\subsection*{Cost functions}')
+            for obj in data['objectives']:
+                fid.write('\\begin{figure}[htb]\n')
+                fid.write('\\centering\n')
+                fid.write('\\includegraphics{%s/%s.pdf}\n' % (base_dir,obj))
+                fid.write('\\caption{%s%s error. Optimal parameters: %s.}\n' % (obj[0].upper(), obj[1:].replace('_',' '),
                                  ', '.join(['='.join([k.replace('_','\_'),'%.2f'%v]) for k,v in opt_pars[obj].iteritems()])))
-            fid.write('\\end{figure}\n')
-            fid.write('\n')
+                fid.write('\\end{figure}\n')
+                fid.write('\n')
         fid.write('\\end{document}\n')
     os.system('pdflatex ' + base_dir + '/' + tex_file)
     os.remove(base_dir + '/' + tex_file)

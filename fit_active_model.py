@@ -281,15 +281,15 @@ def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
             retval = False
             break
         # too many spikes
-        elif nspikes > 3*ref_nspikes:
+        elif nspikes > ref_nspikes*2:
             print('%d check_prerequistes: too many spikes (%d instead of %d).' % (token,nspikes,ref_nspikes))
             retval = False
             break
         # too few spikes
-        #elif nspikes < 0.5*ref_nspikes:
-        #    print('%d check_prerequistes: too few spikes (%d instead of %d).' % (token,nspikes,ref_nspikes))
-        #    retval = False
-        #    break
+        elif nspikes < ref_nspikes/2:
+            print('%d check_prerequistes: too few spikes (%d instead of %d).' % (token,nspikes,ref_nspikes))
+            retval = False
+            break
         # spike block?
         elif ref_nspikes > 0 and nspikes > 0 and m > -40 and s < 3:
             print('%d check_prerequistes: mean(voltage) > -40 and std(voltage) < 3.' % token)

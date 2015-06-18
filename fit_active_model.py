@@ -888,35 +888,41 @@ def display():
     # plot the evolution of the optimization variables
     nbins = 80
     nvar = len(data['variables'])
-    c = 3
-    r = np.ceil(float(nvar)/c)
-    p.figure(figsize=(c*3,r*3))
-    for i,v in enumerate(data['variables']):
-        var = np.zeros((nbins,ngen))
-        for j in range(ngen):
-            var[:,j],edges = np.histogram(data['generations']['%d'%j][:,data['columns'][v[0]]], bins=nbins, range=[float(v[1]),float(v[2])])
-        tmp = data['generations']['%d'%(ngen-1)][:,data['columns'][v[0]]]
-        ax = make_axes(r,c,i+1)
-        opt = {'origin': 'lower', 'cmap': p.get_cmap('Greys'), 'interpolation': 'nearest'}
-        if edges[-1] > 1000:
-            coeff = 1e-3
-        elif np.max(np.abs(edges)) < 0.001:
-            coeff = 1e3
-        else:
-            coeff = 1
-        p.imshow(var, extent=[1,ngen,edges[0]*coeff,edges[-1]*coeff], aspect=ngen/(edges[-1]-edges[0])/coeff, **opt)
-        p.plot(p.xlim(), [float(v[1])*coeff,float(v[1])*coeff], 'r--')
-        p.plot(p.xlim(), [float(v[2])*coeff,float(v[2])*coeff], 'r--')
-        p.ylim([(float(v[1])-0.05*(float(v[2])-float(v[1])))*coeff,(float(v[2])+0.05*(float(v[2])-float(v[1])))*coeff])
-        p.xlabel('Generation #')
-        if coeff != 1:
-            p.ylabel(v[0] + (' (%.0e)' % coeff))
-        else:
-            p.ylabel(v[0])
-        p.xticks(np.round(np.linspace(0,ngen,6)))
-        p.yticks(np.linspace(edges[0],edges[-1],3)*coeff)
-        remove_border()
-    p.savefig(base_dir + '/variables.pdf')
+    max_num_panels = 12 # maximum number of panels per figure
+    for nfig in range(int(np.ceil(float(nvar)/max_num_panels))):
+        c = 3
+        r = min(max_num_panels/c,np.ceil(float(nvar-nfig*max_num_panels)/c))
+        p.figure(figsize=(c*3,r*3))
+        i = 1
+        for v in data['variables'][nfig*max_num_panels:]:
+            var = np.zeros((nbins,ngen))
+            for j in range(ngen):
+                var[:,j],edges = np.histogram(data['generations']['%d'%j][:,data['columns'][v[0]]], bins=nbins, range=[float(v[1]),float(v[2])])
+            tmp = data['generations']['%d'%(ngen-1)][:,data['columns'][v[0]]]
+            ax = make_axes(r,c,i,spacing=[0.2/c,0.2/r])
+            opt = {'origin': 'lower', 'cmap': p.get_cmap('Greys'), 'interpolation': 'nearest'}
+            if edges[-1] > 1000:
+                coeff = 1e-3
+            elif np.max(np.abs(edges)) < 0.001:
+                coeff = 1e3
+            else:
+                coeff = 1
+            p.imshow(var, extent=[1,ngen,edges[0]*coeff,edges[-1]*coeff], aspect=ngen/(edges[-1]-edges[0])/coeff, **opt)
+            p.plot(p.xlim(), [float(v[1])*coeff,float(v[1])*coeff], 'r--')
+            p.plot(p.xlim(), [float(v[2])*coeff,float(v[2])*coeff], 'r--')
+            p.ylim([(float(v[1])-0.05*(float(v[2])-float(v[1])))*coeff,(float(v[2])+0.05*(float(v[2])-float(v[1])))*coeff])
+            p.xlabel('Generation #')
+            if coeff != 1:
+                p.ylabel(v[0] + (' (%.0e)' % coeff))
+            else:
+                p.ylabel(v[0])
+            p.xticks(np.round(np.linspace(0,ngen,6)))
+            p.yticks(np.linspace(edges[0],edges[-1],3)*coeff)
+            remove_border()
+            i += 1
+            if i > r*c:
+                break
+        p.savefig(base_dir + '/variables_%d.pdf' % nfig)
 
     # plot the trade-offs between all possible error pairs at the last generation
     colors = [[1,0.5,0],[0.5,0,1],[0,1,0.5],[1,1,0],[1,0,1],[0,1,1],[1,0,0],[0,1,0],[0,0,1]]
@@ -936,7 +942,7 @@ def display():
             for j in range(i+1,nobj):
                 #idx, = np.where((err[i,-1,:] < 1e10) & (err[j,-1,:] < 1e10))
                 idx, = np.where((err[i,-1,:] <= 3) & (err[j,-1,:] <= 3))
-                ax = make_axes(r,c,subp)
+                ax = make_axes(r,c,subp,offset=[0.1,0.15])
                 p.plot(err[i,-1,idx],err[j,-1,idx],'k.',markersize=2)
                 for obj,col in zip(data['objectives'],colors[:len(data['objectives'])]):
                     x = err[i,-1,best_individuals[obj]]
@@ -1081,37 +1087,18 @@ def display():
         fid.write('Optimization parameters: $\\eta_c^0=%g$, $\\eta_c^{\mathrm{end}}=%g$, $\\eta_m^0=%g$, $\\eta_m^{\mathrm{end}}=%g$, $p_m=%g$.\n' % 
                   (data['parameters']['etac_start'],data['parameters']['etac_end'],
                    data['parameters']['etam_start'],data['parameters']['etam_end'],data['parameters']['p_m']))
-        #fid.write('\\subsection*{Parameters of one good solution}')
-        #fid.write('\\begin{table}[h!!]\n')
-        #fid.write('\\centering\n')
-        #fid.write('\\begin{tabular}{|l|ccc|}\n')
-        #fid.write('\\hline\n')
-        #fid.write('\\textbf{Functional section} & \\textbf{Length} & \\textbf{Diameter} & \\textbf{Axial resistance} \\\\\n')
-        #fid.write('\\hline\n')
-        #fid.write('Soma & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
-        #          (L_soma,L_soma,Ra_soma))
-        #n = ReducedNeuron.n_basal_sections()
-        #fid.write('Basal dendrites (%d) & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
-        #          (n,round(L_basal),round(diam_basal/n),round(Ra_basal)))
-        #n = ReducedNeuron.n_proximal_sections()
-        #fid.write('Proximal apical dendrites (%d) & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
-        #          (n,round(L_proximal),round(diam_proximal/n),round(Ra_proximal)))
-        #n = ReducedNeuron.n_distal_sections()
-        #fid.write('Distal apical dendrites (%d) & $%g\\,\\micro\\meter$ & $%g\\,\\micro\\meter$ & $%g\\,\\ohm\\cdot\\centi\\meter$ \\\\\n' %
-        #          (n,round(L_distal),round(diam_distal/n),round(Ra_distal)))
-        #fid.write('\\hline\n')
-        #fid.write('\\end{tabular}\n')
-        #fid.write('\\caption{Reduced model parameters.}\n')
-        #fid.write('\\end{table}\n')
-        #fid.write('\n')
         fid.write('\\subsection*{Variables}')
-        fid.write('\\begin{figure}[htb]\n')
-        fid.write('\\centering\n')
-        fid.write('\\includegraphics[width=\\textwidth]{%s/variables.pdf}\n' % base_dir)
-        fid.write('\\caption{Evolution of optimization variables with generation. Dark areas indicate clustering of individuals. ')
-        fid.write('The red dashed lines indicate the optimization bounds.}\n')
-        fid.write('\\end{figure}\n')
-        fid.write('\n')
+        for i in range(nfig+1):
+            fid.write('\\begin{figure}[htb]\n')
+            fid.write('\\centering\n')
+            fid.write('\\includegraphics[width=\\textwidth]{%s/variables_%d.pdf}\n' % (base_dir,i))
+            if i == 0:
+                fid.write('\\caption{Evolution of optimization variables with generation. Dark areas indicate clustering of individuals. ')
+                fid.write('The red dashed lines indicate the optimization bounds.}\n')
+            else:
+                fid.write('\\caption{Evolution of optimization variables with generation (part %d).}\n' % (i+1))
+            fid.write('\\end{figure}\n')
+            fid.write('\n')
         if got_errors:
             fid.write('\\subsection*{Errors}')
             fid.write('\\begin{figure}[htb]\n')

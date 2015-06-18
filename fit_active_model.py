@@ -169,6 +169,27 @@ def logger(log_type, msg, token):
         message = '%d FINISHED %s @ %s.' % (token,msg,timestamp())
     print(message)
     
+def current_ramp(neuron, Istop, Istart=0, dt=0.05, dur=500, tbefore=100, tafter=100, V0=-70, token=None):
+    if not token is None:
+        logger('start', 'current_ramp', token)
+    T = np.arange(0, dur+tbefore+tafter+dt/2, dt)
+    I = np.zeros(len(T))
+    idx, = np.where((T>tbefore) & (T<tbefore+dur))
+    I[idx] = Istart + (Istop-Istart) * (T[idx] - tbefore) / dur
+    vec = h.Vector(I)
+    stim = h.IClamp(neuron.soma[0](0.5))
+    stim.dur = 1e9
+    vec.play(stim._ref_amp,dt)
+    rec = {'t': h.Vector(), 'v': h.Vector()}
+    rec['t'].record(h._ref_t)
+    rec['v'].record(neuron.soma[0](0.5)._ref_v)
+    CA3.utils.run(tend=dur+tbefore+tafter, V0=V0, temperature=36)
+    f = interp1d(rec['t'],rec['v'])
+    V = f(T)
+    if not token is None:
+        logger('stop', 'current_ramp', token)
+    return T,V,I
+
 def current_steps(neuron, amplitudes, dt=0.05, dur=500, tbefore=100, tafter=100, V0=-70, token=None):
     if not token is None:
         logger('start', 'current_steps', token)
@@ -285,6 +306,9 @@ def time_constant_error(value):
 def Vm_rest_error(value):
     return np.abs(features['Vm_rest']['mean'] - value) / features['Vm_rest']['std']
 
+def rheobase_error(value):
+    return np.abs(features['rheobase']['mean'] - value) / features['rheobase']['std']
+
 def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
     retval = True
     logger('start','check_prerequisites',token)
@@ -347,64 +371,110 @@ def features_error(parameters):
         features_error.ncalls += 1
     except:
         features_error.__dict__['ncalls'] = 1
+
     token = int(1e9 * np.random.uniform())
     logger('start', 'features_error', token)
-    # build the neuron with the current parameters
-    neuron = make_simplified_neuron(parameters)
-    I_amplitudes = []    # [nA]
-    dt = 0.05            # [ms]
-    dur = 500.           # [ms]
-    tbefore = 500.       # [ms]
-    tafter = 100.        # [ms]
-    V0 = -65.            # [mV]
-    if 'input_resistance' in features or 'time_constant' in features:
-        I_amplitudes.append(-0.2)
-    if 'Vm_rest' in features:
-        I_amplitudes.append(0)
-    # simulate the injection of current steps into the neuron
-    t,V = current_steps(neuron, I_amplitudes, dt, dur, tbefore, tafter, V0, token)
-    # extract significant features from the traces
-    logger('start', 'extractAPPeak', token)
-    tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
-    logger('end', 'extractAPPeak', token)
 
+    # default values for the error measures
     measures = {}
     for obj in objectives:
         measures[obj] = 100
 
-    if 'input_resistance' in features:
-        # extract the input resistance
-        i, = np.where(np.array(I_amplitudes) < 0)
-        idx, = np.where((t>tbefore-200) & (t<tbefore))
-        jdx, = np.where((t>tbefore+dur-200) & (t<tbefore+dur))
-        if np.std(V[i,idx]) < 0.1 and np.std(V[i,jdx]) < 0.1:
-            Vrest = np.mean(V[i,idx])
-            Vstep = np.mean(V[i,jdx])
-            Rm = (Vrest-Vstep) / (-I_amplitudes[i])
-            measures['input_resistance'] = input_resistance_error(Rm)
-    if 'time_constant' in features:
-        # extract the time constant
-        i, = np.where(np.array(I_amplitudes) < 0)
-        idx, = np.where((t>tbefore) & (t<tbefore+300))
-        if np.argmax(V[i,idx]) == 0:
-            x = t[idx] - t[idx[0]]
-            y = V[i,idx] - np.min(V[i,idx])
-            popt,pcov = curve_fit(lambda x,a,tau: a*np.exp(-x/tau), x, y, p0=(y[0],20))
-            measures['time_constant'] = time_constant_error(popt[1])
-    if 'Vm_rest' in features:
-        # extract the resting Vm
-        i, = np.where(np.array(I_amplitudes) == 0)
-        idx, = np.where((t>tbefore-200) & (t<tbefore))
-        if np.std(V[i,idx]) < 0.1:
-            Vrest = np.mean(V[i,idx])
-            measures['Vm_rest'] = Vm_rest_error(Vrest)
+    # build the neuron with the current parameters
+    neuron = make_simplified_neuron(parameters)
 
-    #import pylab as p
-    #for v in V:
-    #    p.plot(t,v,'k')
-    #p.xlabel('Time (ms)')
-    #p.ylabel('Membrane voltage (mV)')
-    #p.show()
+    # start with passive properties
+    if 'input_resistance' in features or 'time_constant' in features or 'Vm_rest' in features:
+        I = []               # [nA]
+        dt = 0.05            # [ms]
+        dur = 500.           # [ms]
+        tbefore = 500.       # [ms]
+        tafter = 100.        # [ms]
+        V0 = -65.            # [mV]
+
+        if 'input_resistance' in features or 'time_constant' in features:
+            I.append(-0.2)
+        if 'Vm_rest' in features:
+            I.append(0)
+
+        # run the simulation
+        t,V = current_steps(neuron, I, dt, dur, tbefore, tafter, V0, token)
+        # check that the neuron didn't spike
+        logger('start', 'extractAPPeak', token)
+        tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
+        logger('end', 'extractAPPeak', token)
+        if any(map(len,tp)):
+            print('%d features_error: spikes during the injection of subthreshold current steps.' % token)
+            logger('end', 'features_error ' + str(measures), token)
+            return measures
+
+        if 'input_resistance' in features:
+            # extract the input resistance
+            i, = np.where(np.array(I) < 0)
+            idx, = np.where((t>tbefore-200) & (t<tbefore))
+            jdx, = np.where((t>tbefore+dur-200) & (t<tbefore+dur))
+            if np.std(V[i,idx]) < 0.1 and np.std(V[i,jdx]) < 0.1:
+                Vrest = np.mean(V[i,idx])
+                Vstep = np.mean(V[i,jdx])
+                Rm = (Vrest-Vstep) / (-I[i])
+                measures['input_resistance'] = input_resistance_error(Rm)
+        if 'time_constant' in features:
+            # extract the time constant
+            i, = np.where(np.array(I) < 0)
+            idx, = np.where((t>tbefore) & (t<tbefore+300))
+            if np.argmax(V[i,idx]) == 0:
+                x = t[idx] - t[idx[0]]
+                y = V[i,idx] - np.min(V[i,idx])
+                popt,pcov = curve_fit(lambda x,a,tau: a*np.exp(-x/tau), x, y, p0=(y[0],20))
+                measures['time_constant'] = time_constant_error(popt[1])
+        if 'Vm_rest' in features:
+            # extract the resting Vm
+            i, = np.where(np.array(I) == 0)
+            idx, = np.where((t>tbefore-200) & (t<tbefore))
+            if np.std(V[i,idx]) < 0.1:
+                Vrest = np.mean(V[i,idx])
+                measures['Vm_rest'] = Vm_rest_error(Vrest)
+
+        #import pylab as p
+        #for v in V:
+        #    p.plot(t,v,'k')
+        #p.xlabel('Time (ms)')
+        #p.ylabel('Membrane voltage (mV)')
+        #p.show()
+
+    # then apply a ramp of current
+    if 'rheobase' in features:
+        I0 = 0               # [nA]
+        I1 = (features['rheobase']['mean'] + 10*features['rheobase']['std']) * 1e-3
+        dt = 0.05            # [ms]
+        dur = 500.           # [ms]
+        tbefore = 200.       # [ms]
+        tafter = 100.        # [ms]
+        V0 = -65.            # [mV]
+
+        # run the simulation
+        t,V,I = current_ramp(neuron, I1, I0, dt, dur, tbefore, tafter, V0, token)
+        logger('start', 'extractAPPeak', token)
+        tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
+        logger('end', 'extractAPPeak', token)
+
+        try:
+            if tp[0][-1] > tbefore+dur:
+                print('%d features_error: spikes after the injection of a ramp of current.' % token)
+                logger('end', 'features_error ' + str(measures), token)
+                return measures
+            rheobase = I[t==tp[0][0]][0] * 1e3
+            measures['rheobase'] = rheobase_error(rheobase)
+            #import pylab as p
+            #p.plot(t,V,'k')
+            #p.plot(t,I*1e3-100,'r')
+            #p.plot([tp[0][0],tp[0][0]],[-100,50],'k--')
+            #p.plot([t[0],t[-1]],[rheobase-100,rheobase-100],'r--')
+            #p.show()
+        except:
+            print('%d features_error: no spikes during the injection of a ramp of current.' % token)
+            logger('end', 'features_error ' + str(measures), token)
+            return measures
 
     logger('end', 'features_error ' + str(measures), token)
     return measures

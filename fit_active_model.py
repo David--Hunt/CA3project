@@ -54,7 +54,7 @@ ephys_data = None
 resampling_frequency = 200. # [kHz]
 
 # the threshold for spike detection
-ap_threshold = -20. # [mV]
+ap_threshold = 0. # [mV]
 
 # default windows for computation of the spike shape error
 spike_shape_error_window = [[-2.,0.],[0.,14.]]
@@ -173,10 +173,11 @@ def current_ramp(neuron, Istop, Istart=0, dt=0.05, dur=500, tbefore=100, tafter=
     if not token is None:
         logger('start', 'current_ramp', token)
     T = np.arange(0, dur+tbefore+tafter+dt/2, dt)
-    I = np.zeros(len(T))
+    V = np.zeros((1,len(T)))
+    I = np.zeros((1,len(T)))
     idx, = np.where((T>tbefore) & (T<tbefore+dur))
-    I[idx] = Istart + (Istop-Istart) * (T[idx] - tbefore) / dur
-    vec = h.Vector(I)
+    I[0,idx] = Istart + (Istop-Istart) * (T[idx] - tbefore) / dur
+    vec = h.Vector(I[0,:])
     stim = h.IClamp(neuron.soma[0](0.5))
     stim.dur = 1e9
     vec.play(stim._ref_amp,dt)
@@ -185,7 +186,7 @@ def current_ramp(neuron, Istop, Istart=0, dt=0.05, dur=500, tbefore=100, tafter=
     rec['v'].record(neuron.soma[0](0.5)._ref_v)
     CA3.utils.run(tend=dur+tbefore+tafter, V0=V0, temperature=36)
     f = interp1d(rec['t'],rec['v'])
-    V = f(T)
+    V[0,:] = f(T)
     if not token is None:
         logger('stop', 'current_ramp', token)
     return T,V,I
@@ -275,8 +276,6 @@ def isi_error(tp):
 # Frontiers in Neuroscience, 1(1), 7-18.
 #
 def spike_rate_error(tp, dur):
-    import pdb
-    pdb.set_trace()
     rate_ref = np.array(map(len, ephys_data['tp'])) / (dur*1e-3)
     return 0
 
@@ -309,62 +308,59 @@ def Vm_rest_error(value):
 def rheobase_error(value):
     return np.abs(features['rheobase']['mean'] - value) / features['rheobase']['std']
 
-def check_prerequisites(t,V,ton,toff,tp,Vp,width=None,token=None):
-    retval = True
+def check_prerequisites(t,V,ton,toff,tp,Vp,target_nspikes=None,width=None,token=None):
     logger('start','check_prerequisites',token)
     n = V.shape[0]
     idx, = np.where((t>toff-200) & (t<toff))
     for i in range(n):
-        m = np.mean(V[i,idx])
-        s = np.std(V[i,idx])
-        # number of spikes in the reference trace (ephys data)
-        ref_nspikes = len(np.where((np.array(ephys_data['tp'][i])>ton) & (np.array(ephys_data['tp'][i])<=toff))[0])
+        # something weird in the membrane potential
+        if np.mean(V[i,idx]) > -40 and np.std(V[i,idx]) < 3:
+            print('%d check_prerequistes: mean(voltage) > -40 and std(voltage) < 3.' % token)
+            logger('end','check_prerequisites',token)
+            return False
         # number of spikes in the simulated trace, after stimulation onset: I consider also
         # the time after the stimulation offset because there should be no spikes there, i.e.
         # the neuron should go back to equilibrium. This also allows removing those situations
         # in which the neuron is tonically spiking when no current is injected.
         nspikes = len(np.where(np.array(tp[i])>ton)[0])
-        # spikes where there shouldn't be any
-        if ref_nspikes == 0 and nspikes != 0:
-            print('%d check_prerequistes: spikes where there shouldn\'t be any.' % token)
-            retval = False
-            break
-        # no spikes where there should be some
-        elif ref_nspikes > 0 and nspikes == 0:
-            print('%d check_prerequistes: no spikes where there should be some.' % token)
-            retval = False
-            break
-        # too many spikes
-        elif nspikes > ref_nspikes*2:
-            print('%d check_prerequistes: too many spikes (%d instead of %d).' % (token,nspikes,ref_nspikes))
-            retval = False
-            break
-        # too few spikes
-        elif nspikes < ref_nspikes/2:
-            print('%d check_prerequistes: too few spikes (%d instead of %d).' % (token,nspikes,ref_nspikes))
-            retval = False
-            break
-        # spike block?
-        elif ref_nspikes > 0 and nspikes > 0 and m > -40 and s < 3:
-            print('%d check_prerequistes: mean(voltage) > -40 and std(voltage) < 3.' % token)
-            retval = False
-            break
-        if not width is None:
-            # no spike width should exceed 3 ms
-            if nspikes > 0 and np.max(width[i]) > 3:
-                retval = False
-                break
+        try:
+            # this part will raise an exception if the user didn't pass the target number of spikes
+            # spikes where there shouldn't be any
+            if target_nspikes[i] == 0 and nspikes != 0:
+                print('%d check_prerequistes: spikes where there shouldn\'t be any.' % token)
+                logger('end','check_prerequisites',token)
+                return False
+            # no spikes where there should be some
+            if target_nspikes[i] > 0 and nspikes == 0:
+                print('%d check_prerequistes: no spikes where there should be some.' % token)
+                logger('end','check_prerequisites',token)
+                return False
+            # too many spikes
+            if nspikes > target_nspikes[i]*2:
+                print('%d check_prerequistes: too many spikes (%d instead of %d).' % (token,nspikes,target_nspikes[i]))
+                logger('end','check_prerequisites',token)
+                return False
+            # too few spikes
+            if nspikes < target_nspikes[i]/2:
+                print('%d check_prerequistes: too few spikes (%d instead of %d).' % (token,nspikes,target_nspikes[i]))
+                logger('end','check_prerequisites',token)
+                return False
+        except:
+            pass
+        ### some additional checks
+        # no spike width should exceed 3 ms
+        if not width is None and nspikes > 0 and np.max(width[i]) > 3:
+            logger('end','check_prerequisites',token)
+            return False
         # decrease in spike height shouldn't exceed 20%
-        if nspikes > 2:
-            for j in range(2,nspikes):
+        if nspikes > 1:
+            for j in range(1,nspikes):
                 if Vp[i][j] < 0.8*Vp[i][0]:
                     print('%d check_prerequistes: spike height decreased by more than 20%%.' % token)
-                    retval = False
-                    break
-            if not retval:
-                break
+                    logger('end','check_prerequisites',token)
+                    return False
     logger('end','check_prerequisites',token)
-    return retval
+    return True
 
 def features_error(parameters):
     try:
@@ -403,8 +399,7 @@ def features_error(parameters):
         logger('start', 'extractAPPeak', token)
         tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
         logger('end', 'extractAPPeak', token)
-        if any(map(len,tp)):
-            print('%d features_error: spikes during the injection of subthreshold current steps.' % token)
+        if not check_prerequisites(t,V,tbefore,tbefore+dur,tp,Vp,np.zeros(len(I)),token=token):
             logger('end', 'features_error ' + str(measures), token)
             return measures
 
@@ -457,24 +452,25 @@ def features_error(parameters):
         logger('start', 'extractAPPeak', token)
         tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
         logger('end', 'extractAPPeak', token)
-
-        try:
-            if tp[0][-1] > tbefore+dur:
-                print('%d features_error: spikes after the injection of a ramp of current.' % token)
-                logger('end', 'features_error ' + str(measures), token)
-                return measures
-            rheobase = I[t==tp[0][0]][0] * 1e3
-            measures['rheobase'] = rheobase_error(rheobase)
-            #import pylab as p
-            #p.plot(t,V,'k')
-            #p.plot(t,I*1e3-100,'r')
-            #p.plot([tp[0][0],tp[0][0]],[-100,50],'k--')
-            #p.plot([t[0],t[-1]],[rheobase-100,rheobase-100],'r--')
-            #p.show()
-        except:
+        if len(tp[0][tp[0]>tbefore]) == 0:
             print('%d features_error: no spikes during the injection of a ramp of current.' % token)
             logger('end', 'features_error ' + str(measures), token)
             return measures
+        if not check_prerequisites(t,V,tbefore,tbefore+dur,tp,Vp,token=token):
+            logger('end', 'features_error ' + str(measures), token)
+            return measures
+        if tp[0][tp[0]>tbefore][-1] > tbefore+dur:
+            print('%d features_error: spikes after the injection of a ramp of current.' % token)
+            logger('end', 'features_error ' + str(measures), token)
+            return measures
+        rheobase = I[0,t==tp[0][tp[0]>tbefore][0]][0] * 1e3
+        measures['rheobase'] = rheobase_error(rheobase)
+        #import pylab as p
+        #p.plot(t,V[0,:],'k')
+        #p.plot(t,I[0,:]*1e2-70,'r')
+        #p.plot([tp[0][0],tp[0][0]],[-100,50],'k--')
+        #p.plot([t[0],t[-1]],[rheobase*0.1-70,rheobase*0.1-70],'r--')
+        #p.show()
 
     logger('end', 'features_error ' + str(measures), token)
     return measures
@@ -500,7 +496,10 @@ def objectives_error(parameters):
     for obj in objectives:
         measures[obj] = 1e20
 
-    if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,token=token):
+    # number of spikes in the reference trace (ephys data)
+    target_nspikes = [sum((np.array(tp)>ephys_data['tbefore']) & (np.array(tp)<ephys_data['tbefore']+ephys_data['dur'])) \
+                          for tp in ephys_data['tp']]
+    if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,target_nspikes,token=token):
         logger('start', 'extractAPThreshold', token)
         tth,Vth = extractAPThreshold(t, V, threshold=ap_threshold, tpeak=tp, model=True)
         logger('end', 'extractAPThreshold', token)
@@ -512,7 +511,7 @@ def objectives_error(parameters):
         except:
             ok = False
             logger('end', 'extractAPHalfWidth+++', token)
-        if ok and check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,width,token):
+        if ok and check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,target_nspikes,width,token):
             if SAVE_DEBUG_INFO:
                 opts = {'%s_spikes' % token: {'tp': tp, 'Vp': Vp, 'tth': tth, 'Vth': Vth}}
                 CA3.utils.h5.save_h5_file(h5_filename, 'a', **opts)

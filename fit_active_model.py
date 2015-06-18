@@ -445,7 +445,7 @@ def features_error(parameters):
     # then apply a ramp of current
     if 'rheobase' in features:
         I0 = 0               # [nA]
-        I1 = (features['rheobase']['mean'] + 10*features['rheobase']['std']) * 1e-3
+        I1 = (features['rheobase']['mean'] + 5*features['rheobase']['std']) * 1e-3
         dt = 0.05            # [ms]
         dur = 500.           # [ms]
         tbefore = 200.       # [ms]
@@ -641,13 +641,6 @@ def optimize():
     else:
         print('Either [Optimization/objectives] or [Optimization/features] must be present in the configuration file.')
         sys.exit(1)
-
-    # still to be implemented
-    #if 'spike_rate' in objectives or 'accommodation_index' in objectives or \
-    #        'latency' in objectives or 'ap_overshoot' in objectives or \
-    #        'ahp_depth' in objectives or 'ap_width' in objectives:
-    #    print('Not fully implemented yet.')
-    #    sys.exit(0)
 
     for var in 'Cm','Rm','El':
         try:
@@ -1033,61 +1026,61 @@ def display():
     else:
         got_errors = False
 
-    if data['optimization_mode'] == 'objectives':
-        # plot the performance of the best individual for each objective
-        for obj in data['objectives']:
-            # build the parameters dictionary
-            pars = copy.deepcopy(data['neuron_pars'])
-            parameters = {}
-            for v in data['variables']:
-                parameters[v[0]] = data['generations'][last][best_individuals[obj],data['columns'][v[0]]]
-            for k,v in parameters.iteritems():
-                if k == 'scaling':
-                    pars[k] = v
-                elif k == 'El':
-                    for lbl in 'soma','proximal','distal','basal':
-                        pars[lbl][k] = v
-                elif k in ('Cm','Rm'):
-                    pars['soma'][k] = v
-                elif k == 'vtraub':
-                    pars[k] = v
-                else:
-                    key = k.split('_')[0]
-                    value = '_'.join(k.split('_')[1:])
-                    try:
-                        pars[key][value] = v
-                    except:
-                        pars[key] = {value: v}
-                    if key in data['dendritic_modes']:
-                        pars[key]['dend_mode'] = data['dendritic_modes'][key]
-            if 'nat' in pars and not 'vtraub_offset_soma' in pars['nat']:
-                pars['nat']['vtraub_offset_soma'] = vtraub_offset
-            if with_axon:
-                pars['axon'] = copy.deepcopy(pars['soma'])
+    # plot the performance of the best individual for each objective
+    for obj in data['objectives']:
+        # build the parameters dictionary
+        pars = copy.deepcopy(data['neuron_pars'])
+        parameters = {}
+        for v in data['variables']:
+            parameters[v[0]] = data['generations'][last][best_individuals[obj],data['columns'][v[0]]]
+        for k,v in parameters.iteritems():
+            if k == 'scaling':
+                pars[k] = v
+            elif k == 'El':
+                for lbl in 'soma','proximal','distal','basal':
+                    pars[lbl][k] = v
+            elif k in ('Cm','Rm'):
+                pars['soma'][k] = v
+            elif k == 'vtraub':
+                pars[k] = v
+            else:
+                key = k.split('_')[0]
+                value = '_'.join(k.split('_')[1:])
                 try:
-                    pars['axon'].pop('L')
+                    pars[key][value] = v
                 except:
-                    pass
-                try:
-                    pars['axon'].pop('diam')
-                except:
-                    pass
-                try:
-                    pars['axon'].pop('area')
-                except:
-                    pass
-                for key in 'nat_scaling_hillock','nat_scaling_ais':
-                    if key in parameters:
-                        factor = pars['nat'].pop(key[4:])
-                        pars['nat']['gbar_'+key[12:]] = factor * parameters['nat_gbar_soma']
-                if not 'vtraub_offset_ais' in pars['nat']:
-                    pars['nat']['vtraub_offset_ais'] = pars['nat']['vtraub_offset_soma']
-                if not 'vtraub_offset_hillock' in pars['nat']:
-                    pars['nat']['vtraub_offset_hillock'] = pars['nat']['vtraub_offset_soma']
+                    pars[key] = {value: v}
+                if key in data['dendritic_modes']:
+                    pars[key]['dend_mode'] = data['dendritic_modes'][key]
+        if 'nat' in pars and not 'vtraub_offset_soma' in pars['nat']:
+            pars['nat']['vtraub_offset_soma'] = vtraub_offset
+        if with_axon:
+            pars['axon'] = copy.deepcopy(pars['soma'])
+            try:
+                pars['axon'].pop('L')
+            except:
+                pass
+            try:
+                pars['axon'].pop('diam')
+            except:
+                pass
+            try:
+                pars['axon'].pop('area')
+            except:
+                pass
+            for key in 'nat_scaling_hillock','nat_scaling_ais':
+                if key in parameters:
+                    factor = pars['nat'].pop(key[4:])
+                    pars['nat']['gbar_'+key[12:]] = factor * parameters['nat_gbar_soma']
+            if not 'vtraub_offset_ais' in pars['nat']:
+                pars['nat']['vtraub_offset_ais'] = pars['nat']['vtraub_offset_soma']
+            if not 'vtraub_offset_hillock' in pars['nat']:
+                pars['nat']['vtraub_offset_hillock'] = pars['nat']['vtraub_offset_soma']
 
-            # construct the model
-            neuron = ctor(pars, with_axon)
+        # construct the model
+        neuron = ctor(pars, with_axon)
 
+        if data['optimization_mode'] == 'objectives':
             # simulate the injection of currents into the model
             t,V = current_steps(neuron, data['ephys_data']['I_amplitudes'], data['ephys_data']['dt'][0],
                                 data['ephys_data']['dur'], data['ephys_data']['tbefore'],
@@ -1116,6 +1109,8 @@ def display():
 
             globals()['display_' + obj](t,V,data['ephys_data'])
             p.savefig(base_dir + '/' + obj + '.pdf')
+        else:
+            pass
 
     # LaTeX generation
     tex_file = os.path.basename(args.filename)[:-3] + '.tex'

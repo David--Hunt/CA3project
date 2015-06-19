@@ -41,8 +41,8 @@ def extractAPPeak(T, V, threshold=None, min_distance=5):
     nexp = V.shape[0]
     threshold = adjust_threshold(V, threshold)
     mpd = np.round(min_distance/np.diff(T[:2]))
-    tpeak = [[] for i in range(nexp)]
-    vpeak = [[] for i in range(nexp)]
+    tpeak = [np.array([]) for i in range(nexp)]
+    vpeak = [np.array([]) for i in range(nexp)]
     for i in range(nexp):
         if np.max(V[i,:]) > threshold[i]:
             pks,locs = findpeaks(V[i,:], min_peak_height=threshold[i], min_peak_distance=mpd)

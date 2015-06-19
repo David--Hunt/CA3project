@@ -308,7 +308,7 @@ def Vm_rest_error(value):
 def rheobase_error(value):
     return np.abs(features['rheobase']['mean'] - value) / features['rheobase']['std']
 
-def check_prerequisites(t,V,ton,toff,tp,Vp,target_nspikes=None,width=None,token=None):
+def check_prerequisites(t,V,ton,toff,tp,Vp,target_nspikes=None,width=None,check_spike_height_decrease=True,token=None):
     logger('start','check_prerequisites',token)
     n = V.shape[0]
     idx, = np.where((t>toff-200) & (t<toff))
@@ -318,11 +318,17 @@ def check_prerequisites(t,V,ton,toff,tp,Vp,target_nspikes=None,width=None,token=
             print('%d check_prerequistes: mean(voltage) > -40 and std(voltage) < 3.' % token)
             logger('end','check_prerequisites',token)
             return False
-        # number of spikes in the simulated trace, after stimulation onset: I consider also
-        # the time after the stimulation offset because there should be no spikes there, i.e.
-        # the neuron should go back to equilibrium. This also allows removing those situations
-        # in which the neuron is tonically spiking when no current is injected.
-        nspikes = len(np.where(np.array(tp[i])>ton)[0])
+        # first of all, check that if spikes are present, they are only between ton and toff
+        if len(np.where(tp[i] <= ton)[0]) > 1:
+            print('%d check_prerequisites: more than one spike before stimulus onset.' % token)
+            logger('end','check_prerequisites',token)
+            return False
+        if len(np.where(tp[i] > toff)[0]) > 0:
+            print('%d check_prerequisites: spikes after stimulus offset.' % token)
+            logger('end', 'check_prerequisites', token)
+            return False
+        # number of spikes in the simulated trace, between ton and toff
+        nspikes = len(np.where((tp[i]>ton) & (tp[i]<toff+10))[0])
         try:
             # this part will raise an exception if the user didn't pass the target number of spikes
             # spikes where there shouldn't be any
@@ -352,9 +358,9 @@ def check_prerequisites(t,V,ton,toff,tp,Vp,target_nspikes=None,width=None,token=
         if not width is None and nspikes > 0 and np.max(width[i]) > 3:
             logger('end','check_prerequisites',token)
             return False
-        # decrease in spike height shouldn't exceed 20%
-        if nspikes > 1:
-            for j in range(1,nspikes):
+        # decrease in spike height from the third to the penultimate spike shouldn't exceed 20%
+        if check_spike_height_decrease and nspikes > 2:
+            for j in range(2,nspikes-1):
                 if Vp[i][j] < 0.8*Vp[i][0]:
                     print('%d check_prerequistes: spike height decreased by more than 20%%.' % token)
                     logger('end','check_prerequisites',token)
@@ -372,9 +378,10 @@ def features_error(parameters):
     logger('start', 'features_error', token)
 
     # default values for the error measures
-    measures = {}
+    default_measures = {}
     for obj in objectives:
-        measures[obj] = 100
+        default_measures[obj] = 100
+    measures = default_measures.copy()
 
     # build the neuron with the current parameters
     neuron = make_simplified_neuron(parameters)
@@ -401,7 +408,7 @@ def features_error(parameters):
         logger('end', 'extractAPPeak', token)
         if not check_prerequisites(t,V,tbefore,tbefore+dur,tp,Vp,np.zeros(len(I)),token=token):
             logger('end', 'features_error ' + str(measures), token)
-            return measures
+            return default_measures
 
         if 'input_resistance' in features:
             # extract the input resistance
@@ -413,6 +420,10 @@ def features_error(parameters):
                 Vstep = np.mean(V[i,jdx])
                 Rm = (Vrest-Vstep) / (-I[i])
                 measures['input_resistance'] = input_resistance_error(Rm)
+            else:
+                print('%d features_error: subthreshold oscillations.' % token)
+                logger('end', 'features_error ' + str(measures), token)
+                return default_measures
         if 'time_constant' in features:
             # extract the time constant
             i, = np.where(np.array(I) < 0)
@@ -422,6 +433,10 @@ def features_error(parameters):
                 y = V[i,idx] - np.min(V[i,idx])
                 popt,pcov = curve_fit(lambda x,a,tau: a*np.exp(-x/tau), x, y, p0=(y[0],20))
                 measures['time_constant'] = time_constant_error(popt[1])
+            else:
+                print('%d features_error: Vm not decreasing during pulse.' % token)
+                logger('end', 'features_error ' + str(measures), token)
+                return default_measures
         if 'Vm_rest' in features:
             # extract the resting Vm
             i, = np.where(np.array(I) == 0)
@@ -429,6 +444,10 @@ def features_error(parameters):
             if np.std(V[i,idx]) < 0.1:
                 Vrest = np.mean(V[i,idx])
                 measures['Vm_rest'] = Vm_rest_error(Vrest)
+            else:
+                print('%d features_error: subthreshold oscillations.' % token)
+                logger('end', 'features_error ' + str(measures), token)
+                return default_measures
 
         #import pylab as p
         #for v in V:
@@ -452,17 +471,14 @@ def features_error(parameters):
         logger('start', 'extractAPPeak', token)
         tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
         logger('end', 'extractAPPeak', token)
-        if len(tp[0][tp[0]>tbefore]) == 0:
-            print('%d features_error: no spikes during the injection of a ramp of current.' % token)
+        # check for the presence of at least 3 spikes during the injection of the ramp
+        if len(np.where((tp[0] > tbefore) & (tp[0] < tbefore+dur))[0]) < 3:
+            print('%d features_error: fewer than 3 spikes during the injection of a ramp of current.' % token)
             logger('end', 'features_error ' + str(measures), token)
-            return measures
-        if not check_prerequisites(t,V,tbefore,tbefore+dur,tp,Vp,token=token):
+            return default_measures
+        if not check_prerequisites(t,V,tbefore,tbefore+dur,tp,Vp,check_spike_height_decrease=False,token=token):
             logger('end', 'features_error ' + str(measures), token)
-            return measures
-        if tp[0][tp[0]>tbefore][-1] > tbefore+dur:
-            print('%d features_error: spikes after the injection of a ramp of current.' % token)
-            logger('end', 'features_error ' + str(measures), token)
-            return measures
+            return default_measures
         rheobase = I[0,t==tp[0][tp[0]>tbefore][0]][0] * 1e3
         measures['rheobase'] = rheobase_error(rheobase)
         #import pylab as p
@@ -497,7 +513,7 @@ def objectives_error(parameters):
         measures[obj] = 1e20
 
     # number of spikes in the reference trace (ephys data)
-    target_nspikes = [sum((np.array(tp)>ephys_data['tbefore']) & (np.array(tp)<ephys_data['tbefore']+ephys_data['dur'])) \
+    target_nspikes = [sum((tp>ephys_data['tbefore']) & (tp<ephys_data['tbefore']+ephys_data['dur'])) \
                           for tp in ephys_data['tp']]
     if check_prerequisites(t,V,ephys_data['tbefore'],ephys_data['tbefore']+ephys_data['dur'],tp,Vp,target_nspikes,token=token):
         logger('start', 'extractAPThreshold', token)

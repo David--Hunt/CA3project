@@ -458,13 +458,16 @@ def features_error(parameters):
 
     # then apply a ramp of current
     if 'rheobase' in features:
-        I0 = 0               # [nA]
+        I0 = (features['rheobase']['mean'] - 5*features['rheobase']['std']) * 1e-3
         I1 = (features['rheobase']['mean'] + 5*features['rheobase']['std']) * 1e-3
         dt = 0.05            # [ms]
-        dur = 500.           # [ms]
-        tbefore = 200.       # [ms]
+        dur = 1000.          # [ms]
+        tbefore = 100.       # [ms]
         tafter = 100.        # [ms]
-        V0 = -65.            # [mV]
+        try:
+            V0 = features['Vm_rest']['mean']
+        except:
+            V0 = -65.            # [mV]
 
         # run the simulation
         t,V,I = current_ramp(neuron, I1, I0, dt, dur, tbefore, tafter, V0, token)
@@ -898,7 +901,37 @@ def display_isi(t, V, ephys_data):
     p.xticks([100,300,500,700])
     p.yticks([-80,-40,0,40])
     remove_border()
-    
+
+def display_rheobase(neuron, data):
+    try:
+        V0 = data['features']['Vm_rest']['mean']
+    except:
+        V0 = -65.
+    Istart = 1e-3*(data['features']['rheobase']['mean']-5*data['features']['rheobase']['std'])
+    Istop = 1e-3*(data['features']['rheobase']['mean']+5*data['features']['rheobase']['std'])
+    dt = 0.05
+    dur = 1000
+    tbefore = 100
+    tafter = 200
+    t,V,I = current_ramp(neuron, Istop, Istart, dt, dur, tbefore, tafter, V0)
+    tp,Vp = extractAPPeak(t,V,threshold=ap_threshold,min_distance=1)
+    rheobase = I[0,t==tp[0][0]][0]
+    p.figure(figsize=(5,3))
+    p.axes([0.05,0.05,0.9,0.9])
+    p.plot([tp[0][0],tp[0][0]],[-82,np.max(V)+2],'k--')
+    p.plot(t,V[0,:],'k')
+    p.plot(t,-80 + I[0,:]*20,'r')
+    p.plot(tp[0][0],-80+rheobase*20,'ro')
+    p.axis([0,tbefore+dur+tafter,-82,np.max(V)+2])
+    p.plot([tbefore-20,tbefore-20],[-20,20],'k')
+    p.plot([tbefore-20,tbefore-20],[-77,-72],'r') # 250 pA
+    p.plot([tbefore-20,tbefore+180],[-20,-20],'k')
+    p.text(tbefore+80,-23,'200 ms',horizontalalignment='center',verticalalignment='top')
+    p.text(tbefore-30,0,'40 mV',horizontalalignment='right',verticalalignment='center')
+    p.text(tbefore-30,-74.5,'250 pA',horizontalalignment='right',verticalalignment='center',color='r')
+    p.text(tp[0][0]-20,-80+rheobase*20+3,'%.0f pA' % (rheobase*1e3),horizontalalignment='right')
+    p.axis('off')
+
 def display():
     global p
     import matplotlib.pyplot as p
@@ -1125,7 +1158,9 @@ def display():
             globals()['display_' + obj](t,V,data['ephys_data'])
             p.savefig(base_dir + '/' + obj + '.pdf')
         else:
-            pass
+            if obj == 'rheobase':
+                display_rheobase(neuron,data)
+                p.savefig(base_dir + '/' + obj + '.pdf')
 
     # LaTeX generation
     tex_file = os.path.basename(args.filename)[:-3] + '.tex'
@@ -1189,12 +1224,13 @@ def display():
             fid.write('solution for a particular objective.}\n')
             fid.write('\\end{figure}\n')
             fid.write('\n')
-        if data['optimization_mode'] == 'objectives':
-            fid.write('\\subsection*{Cost functions}')
-            for obj in data['objectives']:
+        fid.write('\\subsection*{Cost functions}')
+        for obj in data['objectives']:
+            filename = '%s/%s.pdf' % (base_dir,obj)
+            if os.path.exists(filename):
                 fid.write('\\begin{figure}[htb]\n')
                 fid.write('\\centering\n')
-                fid.write('\\includegraphics{%s/%s.pdf}\n' % (base_dir,obj))
+                fid.write('\\includegraphics{%s}\n' % filename)
                 fid.write('\\caption{%s%s error. Optimal parameters: %s.}\n' % (obj[0].upper(), obj[1:].replace('_',' '),
                                  ', '.join(['='.join([k.replace('_','\_'),'%.2f'%v]) for k,v in opt_pars[obj].iteritems()])))
                 fid.write('\\end{figure}\n')

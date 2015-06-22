@@ -308,6 +308,12 @@ def Vm_rest_error(value):
 def rheobase_error(value):
     return np.abs(features['rheobase']['mean'] - value) / features['rheobase']['std']
 
+def initial_firing_rate_error(value):
+    return np.abs(features['initial_firing_rate']['mean'] - value) / features['initial_firing_rate']['std']
+
+def steady_state_firing_rate_error(value):
+    return np.abs(features['steady_state_firing_rate']['mean'] - value) / features['steady_state_firing_rate']['std']
+
 def check_prerequisites(t,V,ton,toff,tp,Vp,target_nspikes=None,width=None,check_spike_height_decrease=True,token=None):
     logger('start','check_prerequisites',token)
     n = V.shape[0]
@@ -380,7 +386,7 @@ def features_error(parameters):
     # default values for the error measures
     default_measures = {}
     for obj in objectives:
-        default_measures[obj] = 100
+        default_measures[obj] = 100.
     measures = default_measures.copy()
 
     # build the neuron with the current parameters
@@ -407,7 +413,7 @@ def features_error(parameters):
         tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
         logger('end', 'extractAPPeak', token)
         if not check_prerequisites(t,V,tbefore,tbefore+dur,tp,Vp,np.zeros(len(I)),token=token):
-            logger('end', 'features_error ' + str(measures), token)
+            logger('end', 'features_error (1) ' + str(default_measures), token)
             return default_measures
 
         if 'input_resistance' in features:
@@ -422,7 +428,7 @@ def features_error(parameters):
                 measures['input_resistance'] = input_resistance_error(Rm)
             else:
                 print('%d features_error: subthreshold oscillations.' % token)
-                logger('end', 'features_error ' + str(measures), token)
+                logger('end', 'features_error (2) ' + str(default_measures), token)
                 return default_measures
         if 'time_constant' in features:
             # extract the time constant
@@ -435,7 +441,7 @@ def features_error(parameters):
                 measures['time_constant'] = time_constant_error(popt[1])
             else:
                 print('%d features_error: Vm not decreasing during pulse.' % token)
-                logger('end', 'features_error ' + str(measures), token)
+                logger('end', 'features_error (3) ' + str(default_measures), token)
                 return default_measures
         if 'Vm_rest' in features:
             # extract the resting Vm
@@ -446,7 +452,7 @@ def features_error(parameters):
                 measures['Vm_rest'] = Vm_rest_error(Vrest)
             else:
                 print('%d features_error: subthreshold oscillations.' % token)
-                logger('end', 'features_error ' + str(measures), token)
+                logger('end', 'features_error (4) ' + str(default_measures), token)
                 return default_measures
 
         #import pylab as p
@@ -477,10 +483,10 @@ def features_error(parameters):
         # check for the presence of at least 3 spikes during the injection of the ramp
         if len(np.where((tp[0] > tbefore) & (tp[0] < tbefore+dur))[0]) < 3:
             print('%d features_error: fewer than 3 spikes during the injection of a ramp of current.' % token)
-            logger('end', 'features_error ' + str(measures), token)
+            logger('end', 'features_error (5) ' + str(default_measures), token)
             return default_measures
         if not check_prerequisites(t,V,tbefore,tbefore+dur,tp,Vp,check_spike_height_decrease=False,token=token):
-            logger('end', 'features_error ' + str(measures), token)
+            logger('end', 'features_error (6) ' + str(default_measures), token)
             return default_measures
         rheobase = I[0,t==tp[0][tp[0]>tbefore][0]][0] * 1e3
         measures['rheobase'] = rheobase_error(rheobase)
@@ -490,6 +496,51 @@ def features_error(parameters):
         #p.plot([tp[0][0],tp[0][0]],[-100,50],'k--')
         #p.plot([t[0],t[-1]],[rheobase*0.1-70,rheobase*0.1-70],'r--')
         #p.show()
+
+    if 'inital_firing_rate' in features or 'steady_state_firing_rate' in features:
+        if 'rheobase' in features:
+            I = [rheobase*1.25*1e-3]               # [nA]
+        else:
+            I = [0.2]
+        dt = 0.05            # [ms]
+        dur = 1000.          # [ms]
+        tbefore = 200.       # [ms]
+        tafter = 100.        # [ms]
+        try:
+            V0 = features['Vm_rest']['mean']
+        except:
+            V0 = -65.            # [mV]
+
+        # run the simulation
+        t,V = current_steps(neuron, I, dt, dur, tbefore, tafter, V0, token)
+        logger('start', 'extractAPPeak', token)
+        tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
+        logger('end', 'extractAPPeak', token)
+        logger('start', 'extractAPHalfWidth', token)
+        Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=ap_threshold, tpeak=tp, Vpeak=Vp, interp=True)
+        logger('end', 'extractAPHalfWidth', token)
+        if not check_prerequisites(t,V,tbefore,tbefore+dur,tp,Vp,width=width,check_spike_height_decrease=True,token=token):
+            logger('end', 'features_error (7) ' + str(default_measures), token)
+            return default_measures
+        if 'initial_firing_rate' in features:
+            try:
+                rate = 1e3 / np.diff(tp[0][:2])
+            except:
+                # only one spike
+                rate = 1e3 / dur
+            measures['initial_firing_rate'] = initial_firing_rate_error(rate)
+        if 'steady_state_firing_rate' in features:
+            ttran = 100
+            idx, = np.where((tp[0]>tbefore+ttran) & (tp[0]<tbefore+dur))
+            rate = len(idx) / ((dur-ttran)*1e-3)
+            measures['steady_state_firing_rate'] = steady_state_firing_rate_error(rate)
+        #import pylab as p
+        #p.ion()
+        #p.plot(t,V[0,:],'k')
+        #p.plot(tp[0],Vp[0],'ro')
+        #p.show()
+        #import pdb
+        #pdb.set_trace()
 
     logger('end', 'features_error ' + str(measures), token)
     return measures

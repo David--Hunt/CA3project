@@ -108,13 +108,12 @@ def extractAPHalfWidth(T, V, threshold=None, tpeak=None, Vpeak=None, tthresh=Non
             idx, = np.where((T >= tpeak[i][j]) & (T<=tpeak[i][j]+2))
             above, = np.where(V[i,idx] > Vhalf[i][j])
             if interp:
-                interval[i][1,j] = np.polyval(np.polyfit(V[i,idx[above[-1]:above[-1]+2]],T[idx[above[-1]:above[-1]+2]],1),Vhalf[i][j])
-            else:
                 try:
-                    interval[i][1,j] = T[idx[above[-1]]]
+                    interval[i][1,j] = np.polyval(np.polyfit(V[i,idx[above[-1]:above[-1]+2]],T[idx[above[-1]:above[-1]+2]],1),Vhalf[i][j])
                 except:
-                    import pdb
-                    pdb.set_trace()
+                    interval[i][1,j] = T[idx[above[-1]]]
+            else:
+                interval[i][1,j] = T[idx[above[-1]]]
     width = [np.squeeze(np.diff(x,n=1,axis=0)) for x in interval]
     return Vhalf,width,interval
 

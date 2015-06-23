@@ -497,7 +497,7 @@ def features_error(parameters):
         #p.plot([t[0],t[-1]],[rheobase*0.1-70,rheobase*0.1-70],'r--')
         #p.show()
 
-    if 'inital_firing_rate' in features or 'steady_state_firing_rate' in features:
+    if 'initial_firing_rate' in features or 'steady_state_firing_rate' in features:
         if 'rheobase' in features:
             I = [rheobase*1.25*1e-3]               # [nA]
         else:
@@ -516,15 +516,29 @@ def features_error(parameters):
         logger('start', 'extractAPPeak', token)
         tp,Vp = extractAPPeak(t, V, threshold=ap_threshold, min_distance=1)
         logger('end', 'extractAPPeak', token)
-        logger('start', 'extractAPHalfWidth', token)
-        Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=ap_threshold, tpeak=tp, Vpeak=Vp, interp=True)
-        logger('end', 'extractAPHalfWidth', token)
-        if not check_prerequisites(t,V,tbefore,tbefore+dur,tp,Vp,width=width,check_spike_height_decrease=True,token=token):
+        # check the prerequisites once to discard situations in which Vm is weird (which will mess up the extraction of the AP half-width
+        if not check_prerequisites(t,V,tbefore,tbefore+dur,tp,Vp,check_spike_height_decrease=True,token=token):
             logger('end', 'features_error (7) ' + str(default_measures), token)
+            return default_measures
+        # extract the threshold values that will be used to detect the half-widths
+        logger('start', 'extractAPThreshold', token)
+        tth,Vth = extractAPThreshold(t, V, threshold=ap_threshold, tpeak=tp, model=True)
+        logger('end', 'extractAPThreshold', token)
+        try:
+            # try to extract the half-widths
+            logger('start', 'extractAPHalfWidth', token)
+            Vhalf,width,interval = extractAPHalfWidth(t, V, threshold=ap_threshold, tpeak=tp, Vpeak=Vp, tthresh=tth, Vthresh=Vth, interp=False)
+            logger('end', 'extractAPHalfWidth', token)
+            ok = True
+        except:
+            logger('end', 'extractAPHalfWidth+++', token)
+            ok = False
+        if not ok or not check_prerequisites(t,V,tbefore,tbefore+dur,tp,Vp,width=width,check_spike_height_decrease=True,token=token):
+            logger('end', 'features_error (8) ' + str(default_measures), token)
             return default_measures
         if 'initial_firing_rate' in features:
             try:
-                rate = 1e3 / np.diff(tp[0][:2])
+                rate = 1e3 / np.diff(tp[0][:2])[0]
             except:
                 # only one spike
                 rate = 1e3 / dur

@@ -54,13 +54,16 @@ ephys_data = None
 resampling_frequency = 200. # [kHz]
 
 # the threshold for spike detection
-ap_threshold = 0. # [mV]
+ap_threshold = -20. # [mV]
 
 # default windows for computation of the spike shape error
 spike_shape_error_window = [[-2.,0.],[0.,14.]]
 
 # the (integer) power to which each ISI component is raised before being summed
 isi_error_power = 2
+
+# the value of current injected in the step, as a function of the rheobase
+rheobase_increment = 1.1
 
 def make_simplified_neuron(parameters):
     with_axon = False
@@ -499,7 +502,7 @@ def features_error(parameters):
 
     if 'initial_firing_rate' in features or 'steady_state_firing_rate' in features:
         if 'rheobase' in features:
-            I = [rheobase*1.25*1e-3]               # [nA]
+            I = [rheobase*rheobase_increment*1e-3]               # [nA]
         else:
             I = [0.2]
         dt = 0.05            # [ms]
@@ -997,6 +1000,28 @@ def display_rheobase(neuron, data):
     p.text(tp[0][0]-20,-80+rheobase*20+3,'%.0f pA' % (rheobase*1e3),horizontalalignment='right')
     p.axis('off')
 
+def display_step(neuron, data):
+    try:
+        V0 = data['features']['Vm_rest']['mean']
+    except:
+        V0 = -65.
+    Istart = 1e-3*(data['features']['rheobase']['mean']-5*data['features']['rheobase']['std'])
+    Istop = 1e-3*(data['features']['rheobase']['mean']+5*data['features']['rheobase']['std'])
+    dt = 0.05
+    dur = 1000
+    tbefore = 100
+    tafter = 200
+    t,V,I = current_ramp(neuron, Istop, Istart, dt, dur, tbefore, tafter, V0)
+    tp,Vp = extractAPPeak(t,V,threshold=ap_threshold,min_distance=1)
+    rheobase = I[0,t==tp[0][0]][0]
+    t,V = current_steps(neuron, [rheobase*rheobase_increment], V0=V0)
+    p.figure(figsize=(5,3))
+    p.axes([0.15,0.2,0.8,0.75])
+    p.plot(t,V[0,:],'k')
+    p.xlabel('Time (ms)')
+    p.ylabel('Membrane voltage (mV)')
+    remove_border()
+
 def display():
     global p
     import matplotlib.pyplot as p
@@ -1225,6 +1250,9 @@ def display():
         else:
             if obj == 'rheobase':
                 display_rheobase(neuron,data)
+                p.savefig(base_dir + '/' + obj + '.pdf')
+            elif obj in ('initial_firing_rate','steady_state_firing_rate'):
+                display_step(neuron,data)
                 p.savefig(base_dir + '/' + obj + '.pdf')
 
     # LaTeX generation

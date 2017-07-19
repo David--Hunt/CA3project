@@ -664,7 +664,7 @@ class ThornyNeuron (SimplifiedNeuron):
 class SWCNeuron (SimplifiedNeuron):
     def __init__(self, parameters, with_axon=True, convert_to_3pt_soma=False):
         if convert_to_3pt_soma:
-            self.swc_filename = '.'.join(parameters['swc_filename'].split('.')[:-1]) + '_converted.swc'
+            self.swc_filename = '.'.join(parameters['swc_filename'].split('.')[:-1]) + '.converted.swc'
             convert_morphology(parameters['swc_filename'], self.swc_filename)
         else:
             self.swc_filename = parameters['swc_filename']
@@ -673,57 +673,53 @@ class SWCNeuron (SimplifiedNeuron):
         SimplifiedNeuron.__init__(self, parameters, with_axon)
 
     def make_sections(self):
+        SWC_types_inverse = {v:k for k,v in SWC_types.iteritems()}
         # load the tree structure that represents the morphology
         self.tree = btmorph.STree2()
         self.tree.read_SWC_tree_from_file(self.swc_filename,types=range(10))
-        # all the sections, indexed by the corresponding index in the SWC file
-        self.sections = {}
+        print('There are %d nodes in the full representation of the morphology.' % len(self.tree.get_nodes()))
+        # all the sections
+        self.sections = []
+        sections_map = {}
+        # describes how sections are connected
+        self.sections_connections = []
         # a (temporary) list of all the sections that make up the apical dendrites
         self.apical = []
-        # parse the tree!
+        # parse the tree
         for node in self.tree:
-            if node is self.tree.root or (not self.has_axon and node.content['p3d'].type == SWC_types['axon']):
-                continue
-            # make the section
-            self.sections[node.index] = h.Section(name='sec_{0}'.format(node.index))
-            section = self.sections[node.index]
-            # set the geometry
-            if not node.parent is None:
-                pPos = node.parent.content['p3d']
-                cPos = node.content['p3d']
-                c_xyz = cPos.xyz
-                p_xyz = pPos.xyz
+            if node is self.tree.root:
+                section = h.Section(name='{0}_{1}'.format(SWC_types_inverse[node.content['p3d'].type],node.index))
+                self.sections.append(section)
+                sections_map[node.index] = len(self.sections)-1
                 h.pt3dclear(sec=section)
-                h.pt3dadd(float(p_xyz[0]),float(p_xyz[1]),float(p_xyz[2]),2*float(pPos.radius),sec=section)
-                h.pt3dadd(float(c_xyz[0]),float(c_xyz[1]),float(c_xyz[2]),2*float(cPos.radius),sec=section)
-            # assign it to the proper region
-            swc_type = node.content['p3d'].type
-            if swc_type == SWC_types['soma']:
                 self.soma.append(section)
-                h.distance(sec=self.soma[0])
-            elif swc_type == SWC_types['axon']:
-                self.axon.append(section)
-            elif swc_type == SWC_types['basal']:
-                self.basal.append(section)
-            elif swc_type == SWC_types['apical']:
-                self.apical.append(section)
-                
-    def adjust_dimensions(self):
-        pass
+            elif len(node.children) == 1 and len(node.parent.children) > 1:
+                # the parent of the current node is a branching point: start a new section
+                section = h.Section(name='{0}_{1}'.format(SWC_types_inverse[node.content['p3d'].type],node.index))
+                self.sections.append(section)
+                self.sections_connections.append((len(self.sections)-1,sections_map[node.parent.index]))
+                sections_map[node.index] = len(self.sections)-1
+                h.pt3dclear(sec=section)
+                # assign it to the proper region
+                swc_type = node.content['p3d'].type
+                if swc_type == SWC_types['soma']:
+                    self.soma.append(section)
+                    h.distance(sec=soma[0])
+                elif swc_type == SWC_types['axon']:
+                    self.axon.append(section)
+                elif swc_type == SWC_types['basal']:
+                    self.basal.append(section)
+                elif swc_type == SWC_types['apical']:
+                    self.apical.append(section)
+                else:
+                    import pdb; pdb.set_trace()
+            else:
+                sections_map[node.index] = sections_map[node.parent.index]
+                section = self.sections[sections_map[node.parent.index]]
+            xyz = node.content['p3d'].xyz
+            h.pt3dadd(float(xyz[0]),float(xyz[1]),float(xyz[2]),2*float(node.content['p3d'].radius),sec=section)
 
-    def setup_topology(self):
-        pass
-
-    def connect_sections(self):
-        for node in self.tree:
-            if node is self.tree.root or (not self.has_axon and node.content['p3d'].type == SWC_types['axon']):
-                continue
-            try:
-                self.sections[node.index].connect(self.sections[node.parent.index],1,0)
-            except:
-                if not self.sections[node.index] is self.soma[0]:
-                    self.sections[node.index].connect(self.soma[0],1,0)
-        # now that the sections are connected we can subdivide those in the apical
+        # now that we have built all the sections we can subdivide those in the apical
         # dendrite in proximal and distal
         h.distance(sec=self.soma[0])
         for sec in self.apical:
@@ -731,6 +727,18 @@ class SWCNeuron (SimplifiedNeuron):
                 self.proximal.append(sec)
             else:
                 self.distal.append(sec)
+
+    def adjust_dimensions(self):
+        pass
+
+    def setup_topology(self):
+        pass
+
+    def connect_sections(self):
+        for i,j in self.sections_connections:
+            if DEBUG:
+                print('%11s(1) <-> %11s(0)' % (self.sections[j].name(), self.sections[i].name()))
+            self.sections[i].connect(self.sections[j], 1, 0)
         del self.apical
 
     def compute_measures(self):
@@ -830,6 +838,78 @@ def neuron_factory(filename):
     else:
         raise Exception('Unknown neuron model: %s.' % data['neuron_type'])
     return cls(data['parameters'], data['has_axon'])
+
+def run_step_full(amplitude=0.1,passive=True):
+    parameters = {'swc_filename': '../../SWCs/FINAL/thorny/DH070813-.Edit.scaled.swc',
+                  'proximal_limit': 35., 'scaling': 1,
+                  'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 20e3},
+                  'proximal': {'Ra': 100., 'El': -70.},
+                  'distal': {'Ra': 100., 'El': -70.},
+                  'basal': {'Ra': 100., 'El': -70.}}
+    # the passive properties of the axon are the same as the soma
+    parameters['axon'] = parameters['soma'].copy()
+
+    cell = SWCNeuron(parameters,with_axon=True,convert_to_3pt_soma=True)
+    if DEBUG:
+        for i,sec in enumerate(cell.sections):
+            print('[%03d] %11s: L = %5.1f um, nseg = %2d, L/nseg = %5.1f um.' % \
+                  (i+1,sec.name(),sec.L,sec.nseg,sec.L/sec.nseg))
+
+    stim = h.IClamp(cell.soma[0](0.5))
+    stim.amp = amplitude
+    stim.dur = 1000
+    stim.delay = 250
+
+    # the recorders
+    rec = {'t': h.Vector()}
+    rec['t'].record(h._ref_t)
+    for sec in cell.sections:
+        for seg in sec:
+            k = '%s_%.3f' % (sec.name(),seg.x)
+            rec[k] = h.Vector()
+            rec[k].record(seg._ref_v)
+
+    h.load_file('stdrun.hoc')
+
+    # run the simulation
+    h.cvode_active(1)
+    h.tstop = stim.dur + 2*stim.delay
+    h.t = 0
+    h.v_init = -70
+    h.run()
+
+    if 'DH070813' in parameters['swc_filename']:
+        k = 'apical_6923_0.500'
+        coeff = 60.
+        min_v = 65.5
+    elif 'DH070313' in parameters['swc_filename']:
+        k = 'apical_5206_0.900'
+        coeff = 60.
+        min_v = 62.
+
+    nseg = 0
+    x = []
+    y = []
+    v = []
+    import matplotlib.pyplot as plt
+    plt.subplot(121)
+    for sec in cell.sections:
+        nseg += sec.nseg
+        for seg in sec:
+            k = '%s_%.3f' % (sec.name(),seg.x)
+            v.append(np.max(np.array(rec[k])))
+            n = np.floor(h.n3d(sec=sec)*seg.x)
+            x.append(h.x3d(n,sec=sec))
+            y.append(h.y3d(n,sec=sec))
+            z = (255-coeff*(min_v+v[-1]))/255
+            plt.plot(x[-1],y[-1],'.',color=[1-z,1-z,z])
+
+    print('There are %d sections for a total of %d segments.' % (len(cell.sections),nseg))
+
+    plt.subplot(122)
+    plt.plot(rec['t'],rec[k],'r')
+    plt.plot(rec['t'],rec['soma_1_0.500'],'k')
+    plt.show()
 
 def run_step_single(amplitude=0.125):
     parameters = {'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'area': 40000},
@@ -946,4 +1026,4 @@ def run_step(amplitude=0.4):
     p.show()
 
 if __name__ == '__main__':
-    run_step_single()
+    run_step_full()

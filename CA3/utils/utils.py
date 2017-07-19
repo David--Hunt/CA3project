@@ -357,6 +357,18 @@ def convert_morphology(filename_in, filename_out):
             if entry[-1] in soma_ids:
                 entry[-1] = 1
             converted_morphology.append(entry.tolist())
+    converted_morphology = np.array(converted_morphology)
+    line_no = 1
+    for entry in converted_morphology:
+        if entry[0] != line_no:
+            # nodes whose parent is the current one
+            idx, = np.where(converted_morphology[:,-1] == entry[0])
+            # change this entry's number
+            entry[0] = line_no
+            # change the parent's number of all the nodes that
+            # have the current node as a parent
+            converted_morphology[idx,-1] = line_no
+        line_no += 1
     np.savetxt(filename_out, converted_morphology, '%g')
 
 def compute_section_area(section):

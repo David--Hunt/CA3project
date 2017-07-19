@@ -304,57 +304,61 @@ class SimplifiedNeuron (Neuron):
     def insert_active_mech(self):
         try:
             self.insert_fast_Na_and_delayed_rectifier_K()
-        except:
+            print('Inserted fast sodium and delayed rectifier potassium currents.')
+        except KeyError:
             if DEBUG:
                 print('Not inserting fast sodium and delayed rectifier potassium currents.')
         try:
             self.insert_calcium_dynamics()
-        except:
+            print('Inserted calcium dynamics.')
+        except KeyError:
             if DEBUG:
                 print('Not inserting calcium dynamics.')
         try:
             self.insert_persistent_Na()
-        except:
+            print('Inserted persistent sodium current.')
+        except KeyError:
             if DEBUG:
                 print('Not inserting persistent sodium current.')
         try:
             self.insert_Im()
-        except:
+        except KeyError:
             if DEBUG:
                 print('Not inserting Im.')
         try:
             self.insert_AHP_K()
-        except:
+            print('Inserted potassium current responsible for AHP.')
+        except KeyError:
             if DEBUG:
                 print('Not inserting potassium current responsible for AHP.')
         try:
             self.insert_K_D()
-        except:
+        except KeyError:
             if DEBUG:
                 print('Not inserting K-D current.')
         try:
             self.insert_A_type_K()
-        except:
+        except KeyError:
             if DEBUG:
                 print('Not inserting A-type potassium current.')
         try:
             self.insert_Ih()
-        except:
+        except KeyError:
             if DEBUG:
                 print('Not inserting Ih.')
         try:
             self.insert_calcium_current('cal')
-        except:
+        except KeyError:
             if DEBUG:
                 print('Not inserting L-type calcium current.')
         try:
             self.insert_calcium_current('cat')
-        except:
+        except KeyError:
             if DEBUG:
                 print('Not inserting T-type calcium current.')
         try:
             self.insert_calcium_current('can')
-        except:
+        except KeyError:
             if DEBUG:
                 print('Not inserting N-type calcium current.')
 
@@ -656,7 +660,7 @@ class ThornyNeuron (SimplifiedNeuron):
             self.axon[0].connect(self.soma[0], 0, 0)
             for i in range(1,len(self.axon)):
                 self.axon[i].connect(self.axon[i-1], 1, 0)
-        
+
 class SWCNeuron (SimplifiedNeuron):
     def __init__(self, parameters, with_axon=True, convert_to_3pt_soma=False):
         if convert_to_3pt_soma:
@@ -827,20 +831,24 @@ def neuron_factory(filename):
         raise Exception('Unknown neuron model: %s.' % data['neuron_type'])
     return cls(data['parameters'], data['has_axon'])
 
-def run_step_single(amplitude=0.5):
-    parameters = {'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 10e3, 'area': 20000},
+def run_step_single(amplitude=0.125):
+    parameters = {'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'area': 40000},
                   'swc_filename': '../../morphologies/DH070613-1-.Edit.scaled.swc'}
 
+    Rin = 50e6
+    parameters['soma']['Rm'] = Rin * parameters['soma']['area'] * 1e-8
     # fast sodium current
-    parameters['nat'] = {'gbar_soma': 100}
+    parameters['nat'] = {'gbar_soma': 100, 'vtraub_offset_soma': -5.}
     # delayed rectifier potassium
-    parameters['kdr'] = {'gbar_soma': 50}
+    parameters['kdr'] = {'gbar_soma': 30}
+    # calcium dynamics
+    #parameters['ca'] = {'tau': 100} # [ms]
     # persistent sodium
-    #parameters['nap'] = {'gbar': 1e-4}
+    #parameters['nap'] = {'gbar': 5}
     # muscarinic potassium
     #parameters['km'] = {'gbar': 20}
     # ahp potassium
-    #parameters['kahp'] = {'gbar': 300}
+    #parameters['kahp'] = {'gbar': 300, 'tau': 100}
     # K-D
     #parameters['kd'] = {'gbar': 1e-4}
     # A-type potassium
@@ -850,21 +858,35 @@ def run_step_single(amplitude=0.5):
 
     n = SingleCompartmentNeuron(parameters)
     #n.save_properties()
-    h.topology()
+    #h.topology()
+    #print('gnabar = %f\ngkbar = %f\n' % (n.soma[0].gnabar_hh2,n.soma[0].gkbar_hh2))
     rec = make_voltage_recorders(n)
+    #rec['ahp'] = h.Vector()
+    #rec['ahp'].record(n.soma[0](0.5)._ref_gkahp_KahpM95)
     stim = h.IClamp(n.soma[0](0.5))
-    stim.delay = 0
+    stim.delay = 100
     stim.amp = amplitude
-    stim.dur = 500
-    run(tend=100,V0=-70)
+    stim.dur = 1000
+    run(tend=stim.dur+stim.delay*3,V0=-70)
+
+    #t = np.arange(0,stim.delay,h.dt)
+    #dV = np.min(np.array(rec['vsoma'])) - n.soma[0].e_pas
+    #tau = n.soma[0].cm * parameters['soma']['area']*1e-8 * Rin * 1e-3
+    #V = n.soma[0].e_pas + dV * np.exp(-t/tau)
+    #print('Input resistance: %.0f MOhm.\nMembrane time constant: %.1f ms.\n' % (Rin*1e-6,tau))
+
+    import pdb; pdb.set_trace()
+    
     import pylab as p
-    p.plot(rec['t'],rec['vsoma'],'k',label='Soma')
+    p.plot(rec['t'],rec['vsoma'],'k',label='Soma',lw=2)
+    #p.plot(t+stim.dur+stim.delay,V,'r',lw=1)
+    #p.plot(rec['t'],rec['ahp'],'k',label='Soma',lw=1)
     p.xlabel('Time (ms)')
     p.ylabel('Membrane voltage (mV)')
     p.legend(loc='best')
     p.show()
 
-def run_step(amplitude=0.12):
+def run_step(amplitude=0.4):
     parameters = {'scaling': 0.5,
                   'soma': {'Cm': 1., 'Ra': 100., 'El': -70., 'Rm': 10e3, 'area': 1500},
                   'proximal': {'Ra': 500., 'El': -70., 'L': 500., 'diam': 5.},
@@ -873,7 +895,7 @@ def run_step(amplitude=0.12):
     # the passive properties of the axon are the same as the soma
     parameters['axon'] = parameters['soma'].copy()
     # fast sodium current
-    with_axon = False
+    with_axon = True
     #parameters['nat'] = {'gbar_soma': 50, 'gbar_distal': 5, 'lambda': 50, 'dend_mode': 'exponential'}
     parameters['nat'] = {'gbar_soma': 100, 'dend_mode': 'linear'}
     #parameters['nat'] = {'gbar_soma': 100, 'scaling_dend': 0.2, 'dend_mode': 'constant'}
@@ -924,4 +946,4 @@ def run_step(amplitude=0.12):
     p.show()
 
 if __name__ == '__main__':
-    run_step()
+    run_step_single()

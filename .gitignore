@@ -6,14 +6,10 @@
 *.aux
 *.log
 *.pdf
-*.ipynb
+*.old
 .ipynb_checkpoints
 *.nb
 logs
 misc
+.DS_Store
 x86_64
-cagk.mod
-distr.mod
-kdrca1.mod
-na3n.mod
-naxn.mod

@@ -341,35 +341,94 @@ def simplify_tree(node, min_distance, spare_types=(SWC_types['soma'],SWC_types['
         for child in node.children:
             simplify_tree(child, min_distance, spare_types, removed)
 
-def convert_morphology(filename_in, filename_out):
+def convert_morphology(filename_in, filename_out=None):
+    """
+    Converts an existing morphology to a 3-point soma convention.
+    """
+
     import numpy as np
-    original_morphology = np.loadtxt(filename_in)
-    idx, = np.where(original_morphology[:,1] == SWC_types['soma'])
-    soma_ids = original_morphology[idx,0]
-    center = np.mean(original_morphology[idx,2:5],axis=0)
-    original_morphology[:,2:5] -= center
-    radius = np.mean(np.sqrt(np.sum(original_morphology[idx,2:5]**2,axis=1)))
-    converted_morphology = [[1, SWC_types['soma'], 0, 0, 0, radius, -1],
-                            [2, SWC_types['soma'], 0, -radius, 0, radius, 1],
-                            [3, SWC_types['soma'], 0, radius, 0, radius, 1]]
-    for entry in original_morphology:
-        if entry[1] != SWC_types['soma']:
+    from scipy.linalg import svd
+
+    # for display purposes
+    entry_to_string = lambda e: '%d @ (%.3f,%.3f,%.3f), R=%.3f, type=%d, parent=%d' % \
+                  (e[0],e[2],e[3],e[4],e[5],e[1],e[6])
+
+    if filename_out is None:
+        filename_out = filename_in.split('.swc')[0] + '.converted.swc'
+
+    # load the original morphology
+    morpho_in = np.loadtxt(filename_in)
+
+    # change the type of points labelled as soma that are not connected to other soma points
+    while True:
+        done = True
+        soma_idx, = np.where(morpho_in[:,1] == 1)
+        soma_ids = morpho_in[soma_idx,0]
+        for entry in morpho_in[soma_idx,:]:
+            # the parent of each soma point must be a soma point
+            if not entry[-1] in soma_ids and entry[-1] != -1:
+                done = False
+                parent_idx, = np.where(morpho_in[:,0] == entry[-1])
+                print(entry_to_string(entry) + ' >> parent not in soma (type = %d).' % \
+                      morpho_in[parent_idx,1])
+                children_idx, = np.where(morpho_in[:,-1] == entry[0])
+                print('%d children present' % len(children_idx))
+                children_types = morpho_in[children_idx,1]
+                if not np.any(children_types == 1):
+                    print('None of the children are of type soma: convert entry %d to type %d.' % \
+                          (entry[0],morpho_in[parent_idx,1]))
+                    morpho_in[morpho_in[:,0] == entry[0],1] = morpho_in[parent_idx,1]
+                else:
+                    print('At least one child of type soma: do not know what to do.')
+                    import pdb; pdb.set_trace()
+        if done:
+            break
+
+    # find the center of the soma and traslate the morphology there
+    soma_idx, = np.where(morpho_in[:,1] == 1)
+    soma_ids = morpho_in[soma_idx,0]
+    center = np.mean(morpho_in[soma_idx,2:5],axis=0)
+    print('The center of the soma is at (%.3f,%.3f,%.3f).' % (center[0],center[1],center[2]))
+    morpho_in[:,2:5] -= center
+    radius = np.mean(np.sqrt(np.sum(morpho_in[soma_idx,2:5]**2,axis=1)))
+
+    # 3-point soma: see http://neuromorpho.org/SomaFormat.html for a description
+    morpho_out = [[1, 1, 0, 0, 0, radius, -1],
+                  [2, 1, 0, -radius, 0, radius, 1],
+                  [3, 1, 0, radius, 0, radius, 1]]
+
+    # the rest of the morphology is unchanged
+    for entry in morpho_in:
+        if entry[1] != 1:
             if entry[-1] in soma_ids:
                 entry[-1] = 1
-            converted_morphology.append(entry.tolist())
-    converted_morphology = np.array(converted_morphology)
-    line_no = 1
-    for entry in converted_morphology:
-        if entry[0] != line_no:
-            # nodes whose parent is the current one
-            idx, = np.where(converted_morphology[:,-1] == entry[0])
-            # change this entry's number
-            entry[0] = line_no
-            # change the parent's number of all the nodes that
-            # have the current node as a parent
-            converted_morphology[idx,-1] = line_no
-        line_no += 1
-    np.savetxt(filename_out, converted_morphology, '%g')
+            morpho_out.append(entry)
+
+    # convert to array for easier manipulation
+    morpho_out = np.array(morpho_out)
+
+    # rotate the morphology so that its somatodendritic axis is parallel to the Y-axis
+    idx, = np.where(morpho_out[:,1] != 2)
+    xyz = morpho_out[:,2:5]
+    xyz_centered = xyz - np.mean(xyz[idx,:],axis=0)
+    U,S,V = svd(xyz_centered[idx,:])
+    xyz_rot = np.dot(xyz_centered,np.transpose(V))
+    xyz_rot = xyz_rot - np.mean(xyz_rot[morpho_out[:,1] == 1,:],axis=0)
+    xyz_rot = xyz_rot[:,(1,0,2)]
+    morpho_out[:,2:5] = xyz_rot
+
+    # make the IDs in the morphology sequential
+    desired_id = 1
+    for entry in morpho_out:
+        current_id = entry[0]
+        if current_id != desired_id:
+            children_idx, = np.where(morpho_out[:,-1] == current_id)
+            morpho_out[children_idx,-1] = desired_id
+            morpho_out[morpho_out[:,0] == current_id,0] = desired_id
+        desired_id += 1
+
+    # save everything
+    np.savetxt(filename_out, morpho_out, '%g')
 
 def compute_section_area(section):
     a = 0.

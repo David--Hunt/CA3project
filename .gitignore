@@ -11,5 +11,6 @@
 *.nb
 logs
 misc
+scratch
 .DS_Store
 x86_64

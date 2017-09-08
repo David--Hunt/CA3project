@@ -5,6 +5,8 @@ from bluepyopt.ephys.morphologies import NrnFileMorphology
 from neuron import h
 import btmorph
 
+__all__ = ['SWCFileSimplifiedMorphology']
+
 class SWCFileSimplifiedMorphology(NrnFileMorphology):
     """SWCFileSimplifiedMorphology"""
 
@@ -20,7 +22,6 @@ class SWCFileSimplifiedMorphology(NrnFileMorphology):
     def instantiate(self, sim=None, icell=None):
         tree = btmorph.STree2()
         tree.read_SWC_tree_from_file(self.morphology_path,types=range(10))
-        print('There are %d nodes in the full representation of the morphology.' % len(tree.get_nodes()))
 
         # all the sections
         self.sections = []
@@ -85,16 +86,5 @@ class SWCFileSimplifiedMorphology(NrnFileMorphology):
         for section in icell.all:
             section.nseg = int((section.L/(0.1*h.lambda_f(100,sec=section))+0.9)/2)*2 + 1
             nseg += section.nseg
-        print('There are %d sections for a total of %d segments.' % (len([x for x in icell.all]),nseg))
 
-
-def main():
-    sim = ephys.simulators.NrnSimulator()
-    filename = '/Users/daniele/Postdoc/Research/Janelia/SWCs/FINAL/thorny/DH070813-.Edit.scaled.converted.swc'
-    morphology = SWCFileSimplifiedMorphology(filename)
-    print(str(morphology))
-    morphology.instantiate(sim)
-
-if __name__ == '__main__':
-    main()
 

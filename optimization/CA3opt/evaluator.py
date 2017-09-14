@@ -135,7 +135,7 @@ def define_fitness_calculator(protocols, config_dir='config', features_file='fea
     return fitcalc
 
 
-def create(cell_name, filenames, simplify_morphology=True, config_dir='config'):
+def create(cell_name, filenames, config_dir='config', simplify_morphology=False):
     """Setup"""
 
     for k in ('mechanisms','parameters','protocols','features'):

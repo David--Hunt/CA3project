@@ -1,0 +1,18 @@
+{
+    "Step1": {
+        "soma": {
+            "voltage_base": [
+                -70.35,
+                1.0
+            ],
+            "steady_state_voltage_stimend": [
+                -80.00,
+                1.0
+            ],
+            "decay_time_constant_after_stim": [
+                19.77,
+                1.0
+            ]   
+        }
+    }
+}

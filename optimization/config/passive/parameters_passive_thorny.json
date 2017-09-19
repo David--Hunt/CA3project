@@ -54,6 +54,11 @@
         "sectionlist": "all",
         "type": "section",
         "dist_type": "uniform",
-        "value": -70
+        "mech": "pas",
+        "mech_param": "e",
+        "bounds": [
+            -80,
+            -60
+        ]
     }
 ]

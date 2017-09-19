@@ -1,0 +1,12 @@
+{
+    "Step1": {
+        "stimuli": [
+            {
+                "delay": 250,
+                "amp": -0.1,
+                "duration": 1000,
+                "totduration": 1500
+            }
+        ]
+    }
+}

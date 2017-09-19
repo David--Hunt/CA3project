@@ -42,16 +42,16 @@ def main():
     parser.add_argument('-g', '--num-generation', default=100, type=int, help='number of generations')
     args = parser.parse_args(args=sys.argv[1:])
 
-    if args.swc_file == 'RS':
+    if args.swc_file.lower() in ('thorny','rs'):
         swc_filename = '/Users/daniele/Postdoc/Research/Janelia/SWCs/FINAL/thorny/DH070813-.Edit.scaled.converted.swc'
-    elif args.swc_file == 'IB':
+    elif args.swc_file.lower() in ('a-thorny','ib'):
         swc_filename = '/Users/daniele/Postdoc/Research/Janelia/SWCs/FINAL/a-thorny/DH070613-1-.Edit.scaled.converted.swc'
     else:
         swc_filename = args.swc_file
 
     cell_name = args.cell_name
     if cell_name is None:
-        cell_name = os.path.basename(swc_filename).split('-.')[0]
+        cell_name = os.path.basename(swc_filename).split('-.')[0].replace('-','_')
         
     if args.suffix is None:
         suffix = ''
@@ -118,7 +118,6 @@ def main():
             plt.plot(v['time'],v['voltage'],'k',linewidth=2,label='Best individual')
     plt.xlabel('Time (ms)')
     plt.ylabel(r'$V_m$ (mV)')
-    plt.axis([0,1500,-90,-50])
     plt.legend(loc='best')
     plt.show()
     

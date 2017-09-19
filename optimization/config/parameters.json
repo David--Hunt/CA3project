@@ -28,38 +28,28 @@
         "sectionlist": "apical",
         "type": "section",
         "dist_type": "uniform",
-        "bounds": [1,2]
+        "value": 1.5
     },
     {
         "param_name": "cm",
         "sectionlist": "basal",
         "type": "section",
         "dist_type": "uniform",
-        "bounds": [1,2]
+        "value": 1.5
     },
     {
         "param_name": "g_pas",
         "sectionlist": "all",
         "type": "section",
         "dist_type": "uniform",
-        "mech": "pas",
-        "mech_param": "g",
-        "bounds": [
-            1e-5,
-            1e-4
-        ]
+        "value": 4e-5
     },
     {
         "param_name": "e_pas",
         "sectionlist": "all",
         "type": "section",
         "dist_type": "uniform",
-        "mech": "pas",
-        "mech_param": "e",
-        "bounds": [
-            -80,
-            -60
-        ]
+        "value": -70
     },
     {
         "param_name": "ena",
@@ -85,20 +75,6 @@
     {
         "param_name": "ek",
         "sectionlist": "apical",
-        "type": "section",
-        "dist_type": "uniform",
-        "value": -85
-    },
-    {
-        "param_name": "ena",
-        "sectionlist": "somatic",
-        "type": "section",
-        "dist_type": "uniform",
-        "value": 50
-    },
-    {
-        "param_name": "ek",
-        "sectionlist": "somatic",
         "type": "section",
         "dist_type": "uniform",
         "value": -85

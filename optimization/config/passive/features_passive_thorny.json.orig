@@ -1,0 +1,14 @@
+{
+    "Step1": {
+        "soma": {
+            "ohmic_input_resistance": [
+                88.62308,
+                40.93539
+            ],
+            "decay_time_constant_after_stim": [
+                20.0,
+                1.0
+            ]   
+        }
+    }
+}

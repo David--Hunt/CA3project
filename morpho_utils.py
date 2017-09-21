@@ -407,6 +407,11 @@ def help():
         print('')
         print('Type \'%s help <command>\' for help about a specific command.' % progname)
 
+############################################################
+###                         MAIN                         ###
+############################################################
+
+
 # all the commands currently implemented
 commands = {'help': help, 'convert': convert, 'build': build, 'plot': plot, 'simplify': simplify}
 

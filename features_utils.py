@@ -12,6 +12,9 @@ import igor.binarywave as ibw
 import argparse as arg
 import matplotlib.pyplot as plt
 
+from json import encoder
+encoder.FLOAT_REPR = lambda o: format(o, '.4g')
+
 progname = os.path.basename(sys.argv[0])
 
 feature_names = ['AP_height','AHP_slow_time','ISI_CV','doublet_ISI',
@@ -26,8 +29,14 @@ feature_names = ['AP_height','AHP_slow_time','ISI_CV','doublet_ISI',
 def write_features():
     parser = arg.ArgumentParser(description='Write configuration file using features from multiple cells.',\
                                 prog=progname+' write')
-    parser.add_argument('--folder', default='.', type=str,
-                        help='folder where the data is stored (deault: .)')
+    parser.add_argument('folder', default='.', type=str, action='store', nargs='?',
+                        help='folder where data is stored (default: .)')
+    parser.add_argument('--features-file', default=None,
+                        help='output features file name (deault: features.json)')
+    parser.add_argument('--protocols-file', default=None,
+                        help='output protocols file name (deault: protocols.json)')
+    parser.add_argument('-o', '--suffix', default='',
+                        help='suffix for the output file names (default: no suffix)')
 
     args = parser.parse_args(args=sys.argv[2:])
 
@@ -38,6 +47,16 @@ def write_features():
     while folder[-1] == '/':
         folder = folder[:-1]
 
+    if args.features_file is None:
+        features_file = 'features_' + args.suffix.replace('_','') + '.json'
+    elif suffix != '':
+        print('Suffix will be ignored.')
+
+    if args.protocols_file is None:
+        protocols_file = 'protocols_' + args.suffix.replace('_','') + '.json'
+    elif suffix != '' and args.features_file is None:
+        print('Suffix will be ignored.')
+
     amplitudes = []
     features = []
     for cell in [os.path.join(folder, f) for f in os.listdir(folder) \
@@ -47,11 +66,22 @@ def write_features():
 
     nsteps = 3
     X = [[] for i in range(nsteps)]
-    for amplitude,feature in zip(amplitudes,features):
-        desired_amps = np.arange(nsteps)*100. + amplitude[0]
-        for i,amp in enumerate(desired_amps):
+    desired_amps = np.zeros((len(amplitudes),nsteps))
+    for i,(amplitude,feature) in enumerate(zip(amplitudes,features)):
+        amps = np.unique(amplitude)
+        if len(amps) < nsteps:
+            print('Not enough distinct amplitudes.')
+            sys.exit(0)
+        min_amp = amps[0]
+        max_amp = amps[-1]
+        amp_step = (max_amp-min_amp)/(nsteps-1)
+        desired_amps[i,:] = np.arange(min_amp,max_amp+amp_step/2,amp_step)
+        for j in range(nsteps):
+            if not desired_amps[i,j] in amps:
+                desired_amps[i,j] = amps[np.argmin(np.abs(amps - desired_amps[i,j]))]
+        for j,amp in enumerate(desired_amps[i,:]):
             idx, = np.where(amplitude == amp)
-            X[i].append([[feature[jdx][name] for jdx in idx] for name in feature_names])
+            X[j].append([[feature[jdx][name] for jdx in idx] for name in feature_names])
 
     flatten = lambda l: [item for sublist in l for item in sublist]
     
@@ -67,15 +97,20 @@ def write_features():
             except:
                 pass
 
+    protocols_dict = {}
     features_dict = {}
     for i in range(nsteps):
         stepnum = 'Step%d'%(i+1)
+        protocols_dict[stepnum] = {'stimuli': {
+            'delay': 500, 'amp': np.mean(desired_amps[:,i]),
+            'duration': 2000, 'totduration': 3000}}
         features_dict[stepnum] = {'soma': {}}
         for j in range(nfeatures):
             if not np.isnan(Xm[i,j]):
                 features_dict[stepnum]['soma'][feature_names[j]] = [Xm[i,j],Xs[i,j]]
 
-    json.dump(features_dict,open('features.json','w'),indent=4)
+    json.dump(protocols_dict,open(protocols_file,'w'),indent=4)
+    json.dump(features_dict,open(features_file,'w'),indent=4)
     
 ############################################################
 ###                       EXTRACT                        ###
@@ -108,14 +143,18 @@ def read_tab_delim_file(filename):
 def extract_features():
     parser = arg.ArgumentParser(description='Extract ephys features from recordings.',\
                                 prog=progname+' extract')
-    parser.add_argument('--folder', default='.', type=str,
-                        help='folder where the data is stored (deault: .)')
-    parser.add_argument('-F', '--sampling-rate', default=20000., type=float,
-                        help='the sampling rate at which data was recorded (default 20000 Hz)')
+    parser.add_argument('folder', default='.', type=str, action='store', nargs='?',
+                        help='folder where data is stored (default: .)')
+    parser.add_argument('-F', '--sampling-rate', default=20., type=float,
+                        help='the sampling rate at which data was recorded (default 20 kHz)')
     parser.add_argument('--history-file', default='history.txt', type=str,
                         help='history file (default: history.txt)')
-    parser.add_argument('--current-file', default='DP_Sweeper/dacWaves/stepPulse.ibw',
-                        help='current stimulation file (default: DP_Sweeper/dacWaves/stepPulse.ibw)')
+    parser.add_argument('--stim-dur', default=500., type=float,
+                        help='Stimulus duration (default 500 ms)')
+    parser.add_argument('--stim-start', default=125., type=float,
+                        help='Stimulus duration (default 125 ms)')
+    parser.add_argument('--recording-dur', default=1000., type=float,
+                        help='Recording duration (default 1000 ms)')
 
     args = parser.parse_args(args=sys.argv[2:])
 
@@ -133,23 +172,27 @@ def extract_features():
         print('%s: %s: no such file.' % (progname,args.history_file))
         sys.exit(3)
 
-    current_file = folder + '/' + args.current_file
-    if not os.path.isfile(current_file):
-        print('%s: %s: no such file.' % (progname,args.current_file))
+    if args.stim_dur <= 0:
+        print('The duration of the stimulus must be positive.')
         sys.exit(4)
-        
+
+    if args.recording_dur <= 0 or args.recording_dur < args.stim_dur:
+        print('The duration of the recording must be positive and greater than that of the stimulus.')
+        sys.exit(4)
+
+    if args.stim_start <= 0 or args.stim_start+args.stim_dur > args.recording_dur:
+        print('The beginning of the stimulus must be within 0 and the end of the recording minus the stimulus duration.')
+        sys.exit(4)
+
     info = read_tab_delim_file(history_file)
 
-    #data = ibw.load(current_file)
-    #current = data['wave']['wData']
-    #time = np.arange(len(current)) / args.sampling_rate * 1e3
-    #tend = time[-1]
-    #idx, = np.where(current > 0)
-    #stim_start = time[idx[0]]
-    #stim_end = time[idx[-1]]
-    duration = 500.
-    stim_start = 125.
-    stim_end = stim_start+duration
+    stim_dur = args.stim_dur
+    total_dur = args.recording_dur
+    stim_start = args.stim_start
+    stim_end = stim_start + stim_dur
+
+    nsamples = total_dur * args.sampling_rate + 1
+    time = np.arange(nsamples) / args.sampling_rate
 
     durations = []
     amplitudes = []
@@ -157,6 +200,10 @@ def extract_features():
 
     for f in glob.glob(folder + '/ad0_*.ibw'):
         data = ibw.load(f)
+
+        if data['wave']['wave_header']['npnts'] != nsamples:
+            continue
+
         try:
             sweep_index = int(f[:-4].split('_')[-1])
         except:
@@ -171,12 +218,10 @@ def extract_features():
             jdx = idx[1]
 
         voltage = data['wave']['wData']
-        time = np.arange(len(voltage)) / args.sampling_rate * 1e3
-
         values = info['builder_parameters'][jdx].split(';')
         dur = float(values[0].split('=')[1])
         amp = float(values[1].split('=')[1]) * info['multiplier'][jdx]
-        if np.abs(dur-duration) < 1e-6  and np.max(voltage) > 0 and time[-1] <= 1000:
+        if np.abs(dur-stim_dur) < 1e-6  and amp > 0 and np.max(voltage) > 0:
             amplitudes.append(amp)
             durations.append(dur)
             trace = {'T': time, 'V': voltage,

@@ -101,9 +101,9 @@ def write_features():
     features_dict = {}
     for i in range(nsteps):
         stepnum = 'Step%d'%(i+1)
-        protocols_dict[stepnum] = {'stimuli': {
-            'delay': 500, 'amp': np.mean(desired_amps[:,i]),
-            'duration': 2000, 'totduration': 3000}}
+        protocols_dict[stepnum] = {'stimuli': [{
+            'delay': 500, 'amp': np.mean(desired_amps[:,i])*1e-3,
+            'duration': 2000, 'totduration': 3000}]}
         features_dict[stepnum] = {'soma': {}}
         for j in range(nfeatures):
             if not np.isnan(Xm[i,j]):

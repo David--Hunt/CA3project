@@ -29,8 +29,8 @@ feature_names = ['AP_height','AHP_slow_time','ISI_CV','doublet_ISI',
 def write_features():
     parser = arg.ArgumentParser(description='Write configuration file using features from multiple cells.',\
                                 prog=progname+' write')
-    parser.add_argument('folder', default='.', type=str, action='store', nargs='?',
-                        help='folder where data is stored (default: .)')
+    parser.add_argument('files', type=str, nargs='+',
+                        help='pkl files containing the data relative to each cell')
     parser.add_argument('--features-file', default=None,
                         help='output features file name (deault: features.json)')
     parser.add_argument('--protocols-file', default=None,
@@ -40,29 +40,29 @@ def write_features():
 
     args = parser.parse_args(args=sys.argv[2:])
 
-    if not os.path.isdir(args.folder):
-        print('%s: %s: no such directory.' % (progname,args.folder))
-        sys.exit(1)
-    folder = args.folder
-    while folder[-1] == '/':
-        folder = folder[:-1]
+    for f in args.files:
+        if not os.path.isfile(f):
+            print('%s: %s: no such file.' % (progname,f))
+            sys.exit(1)
 
     if args.features_file is None:
-        features_file = 'features_' + args.suffix.replace('_','') + '.json'
-    elif suffix != '':
-        print('Suffix will be ignored.')
+        features_file = 'features'
+    if args.suffix != '':
+        features_file += '_' + args.suffix.replace('_','')
+    features_file += '.json'
 
     if args.protocols_file is None:
-        protocols_file = 'protocols_' + args.suffix.replace('_','') + '.json'
-    elif suffix != '' and args.features_file is None:
-        print('Suffix will be ignored.')
+        protocols_file = 'protocols'
+    if args.suffix != '':
+        protocols_file += '_' + args.suffix.replace('_','')
+    protocols_file += '.json'
 
     amplitudes = []
     features = []
-    for cell in [os.path.join(folder, f) for f in os.listdir(folder) \
-                 if os.path.isdir(os.path.join(folder,f))]:
-        amplitudes.append(pickle.load(open(cell + '/amplitudes.pkl','r')))
-        features.append(pickle.load(open(cell + '/features.pkl','r')))
+    for f in args.files:
+        data = pickle.load(open(f,'r'))
+        features.append(data['features'])
+        amplitudes.append(data['current_amplitudes'])
 
     nsteps = 3
     X = [[] for i in range(nsteps)]
@@ -111,10 +111,73 @@ def write_features():
 
     json.dump(protocols_dict,open(protocols_file,'w'),indent=4)
     json.dump(features_dict,open(features_file,'w'),indent=4)
-    
+
+
 ############################################################
 ###                       EXTRACT                        ###
 ############################################################
+
+
+def extract_features_from_file(file_in,stim_dur,stim_start,sampling_rate):
+    stim_end = stim_start + stim_dur
+
+    data = ibw.load(file_in)
+    voltage = data['wave']['wData']
+    if len(voltage.shape) == 1:
+        voltage = np.array([voltage])
+    elif voltage.shape[0] > voltage.shape[1]:
+        voltage = voltage.T
+    time = np.arange(voltage.shape[1]) / sampling_rate
+
+    idx, = np.where((time>stim_start) & (time<=stim_end))
+    traces = [{'T': time[idx], 'V': sweep[idx], 'stim_start': [stim_start], 'stim_end': [stim_end]} \
+              for sweep in voltage]
+    plt.plot(time,voltage.T,lw=1)
+
+    return efel.getFeatureValues(traces,feature_names)
+
+
+def extract_features_from_files(files_in,current_amplitudes,stim_dur,stim_start,sampling_rate=20,files_out=[]):
+    if type(files_out) != list:
+        files_out = [files_out]
+    if len(files_out) == 1:
+        features = []
+        with_spikes = []
+        offset = 0
+        for i,f in enumerate(files_in):
+            feat = extract_features_from_file(f,stim_dur,stim_start,sampling_rate)
+            jdx, = np.where([not all(v is None for v in f.values()) for f in feat])
+            if len(jdx) > 0:
+                for j in jdx:
+                    features.append(feat[j])
+                    with_spikes.append(offset + j)
+            offset += len(feat)
+        amplitudes = [current_amplitudes[i] for i in with_spikes]
+        idx = np.argsort(amplitudes)
+        amplitudes = [amplitudes[jdx] for jdx in idx]
+        features = [features[jdx] for jdx in idx]
+        data = {'features': features, 'current_amplitudes': amplitudes, \
+                'stim_dur': stim_dur, 'stim_start': stim_start}
+        pickle.dump(data,open(files_out[0],'w'))
+    else:
+        if len(files_out) == 0:
+            files_out = map(lambda x: x+'.pkl',files_in)
+        elif len(files_out) != len(files_in):
+            raise Exception('There must be as many input as output files')
+        for f_in,f_out in zip(files_in,files_out):
+            feat,_ = extract_features_from_file(f_in)
+            pickle.dump(feat,open(f_out,'w'))
+
+    print('-------------------------------------------------------')
+    for feat,amp in zip(features,amplitudes):
+        print('>>> Amplitude: %g nA' % amp)
+        for name,values in feat.items():
+            try:
+                print('%s has the following values: %s' % \
+                      (name, ', '.join([str(x) for x in values])))
+            except:
+                print('{} has the following values: \033[91m'.format(name) + str(values) + '\033[0m')
+        print('-------------------------------------------------------')
 
 
 def read_tab_delim_file(filename):
@@ -143,8 +206,10 @@ def read_tab_delim_file(filename):
 def extract_features():
     parser = arg.ArgumentParser(description='Extract ephys features from recordings.',\
                                 prog=progname+' extract')
-    parser.add_argument('folder', default='.', type=str, action='store', nargs='?',
-                        help='folder where data is stored (default: .)')
+    parser.add_argument('-d', '--folder', default=None,
+                        help='the folder where data is stored')
+    parser.add_argument('-f', '--file', default=None,
+                        help='the file where data is stored')
     parser.add_argument('-F', '--sampling-rate', default=20., type=float,
                         help='the sampling rate at which data was recorded (default 20 kHz)')
     parser.add_argument('--history-file', default='history.txt', type=str,
@@ -152,105 +217,87 @@ def extract_features():
     parser.add_argument('--stim-dur', default=500., type=float,
                         help='Stimulus duration (default 500 ms)')
     parser.add_argument('--stim-start', default=125., type=float,
-                        help='Stimulus duration (default 125 ms)')
-    parser.add_argument('--recording-dur', default=1000., type=float,
-                        help='Recording duration (default 1000 ms)')
+                        help='Beginning of the stimulus (default 125 ms)')
+    parser.add_argument('--Imin', default=None, type=float,
+                        help='Minimum injected current, in nA')
+    parser.add_argument('--Istep', default=0.1, type=float,
+                        help='Current step (default 0.1 nA)')
 
     args = parser.parse_args(args=sys.argv[2:])
 
-    if not os.path.isdir(args.folder):
-        print('%s: %s: no such directory.' % (progname,args.folder))
+    if args.folder is not None and args.file is not None:
+        print('Cannot specify both folder and file simultaneously.')
         sys.exit(1)
-    folder = os.path.abspath(args.folder)
+
+    if args.folder is not None:
+        if not os.path.isdir(args.folder):
+            print('%s: %s: no such directory.' % (progname,args.folder))
+            sys.exit(1)
+        folder = os.path.abspath(args.folder)
+        mode = 'CA3'
+    else:
+        if not os.path.isfile(args.file):
+            print('%s: %s: no such file.' % (progname,args.file))
+            sys.exit(1)
+        filename = os.path.abspath(args.file)
+        folder = os.path.dirname(filename)
+        mode = 'cortex'
 
     if args.sampling_rate <= 0:
         print('%s: the sampling rate must be positive.' % progname)
         sys.exit(2)
-        
-    history_file = folder + '/' + args.history_file
-    if not os.path.isfile(history_file):
-        print('%s: %s: no such file.' % (progname,args.history_file))
-        sys.exit(3)
 
     if args.stim_dur <= 0:
         print('The duration of the stimulus must be positive.')
-        sys.exit(4)
+        sys.exit(3)
 
-    if args.recording_dur <= 0 or args.recording_dur < args.stim_dur:
-        print('The duration of the recording must be positive and greater than that of the stimulus.')
-        sys.exit(4)
+    if mode == 'CA3':
+        history_file = folder + '/' + args.history_file
+        if not os.path.isfile(history_file):
+            print('%s: %s: no such file.' % (progname,args.history_file))
+            sys.exit(4)
+        info = read_tab_delim_file(history_file)
 
-    if args.stim_start <= 0 or args.stim_start+args.stim_dur > args.recording_dur:
-        print('The beginning of the stimulus must be within 0 and the end of the recording minus the stimulus duration.')
-        sys.exit(4)
-
-    info = read_tab_delim_file(history_file)
-
-    stim_dur = args.stim_dur
-    total_dur = args.recording_dur
-    stim_start = args.stim_start
-    stim_end = stim_start + stim_dur
-
-    nsamples = total_dur * args.sampling_rate + 1
-    time = np.arange(nsamples) / args.sampling_rate
-
-    durations = []
-    amplitudes = []
-    traces = []
-
-    for f in glob.glob(folder + '/ad0_*.ibw'):
-        data = ibw.load(f)
-
-        if data['wave']['wave_header']['npnts'] != nsamples:
-            continue
-
-        try:
-            sweep_index = int(f[:-4].split('_')[-1])
-        except:
-            continue
-        
-        idx, = np.where(np.array(info['sweep_index']) == sweep_index)
-        if len(idx) > 2:
-            continue
-        if info['channel_units'][idx[0]] == 'pA':
-            jdx = idx[0]
+    if mode == 'CA3':
+        files_in = []
+        file_out = folder.split('/')[-1] + '.pkl'
+        current_amplitudes = []
+        n = len(info['sweep_index'])
+        for i in range(n):
+            if info['builder_name'][i] == 'StepPulse' and info['sweep_index'].count(info['sweep_index'][i]) == 2:
+                params = info['builder_parameters'][i].split(';')
+                for p in params:
+                    if 'duration' in p:
+                        dur = float(p.split('=')[1])
+                    elif 'amplitude' in p:
+                        amp = float(p.split('=')[1])*info['multiplier'][i]*1e-3
+                if dur == args.stim_dur and amp>0:
+                    print('[%02d] dur=%g ms, amp=%g nA' % (info['sweep_index'][i],dur,amp))
+                    files_in.append('ad0_%d.ibw' % info['sweep_index'][i])
+                    current_amplitudes.append(amp)
+    elif mode == 'cortex':
+        files_in = [filename]
+        file_out = os.path.basename(filename).split('.')[0] + '.pkl'
+        data = ibw.load(filename)
+        Istep = args.Istep
+        nsteps = len(data['wave']['wData'])
+        if args.Imin is None:
+            s = np.std(data['wave']['wData'],0)
+            Imin = -args.Istep*np.argmin(s)
+            print('Guessing the minimum value of injected current: %g nA.' % Imin)
         else:
-            jdx = idx[1]
+            Imin = args.Imin
+        current_amplitudes = np.arange(nsteps)*Istep + Imin
+        current_amplitudes = current_amplitudes.tolist()
 
-        voltage = data['wave']['wData']
-        values = info['builder_parameters'][jdx].split(';')
-        dur = float(values[0].split('=')[1])
-        amp = float(values[1].split('=')[1]) * info['multiplier'][jdx]
-        if np.abs(dur-stim_dur) < 1e-6  and amp > 0 and np.max(voltage) > 0:
-            amplitudes.append(amp)
-            durations.append(dur)
-            trace = {'T': time, 'V': voltage,
-                     'stim_start': [stim_start], 'stim_end': [stim_end]}
-            #plt.plot(trace['T']*1e-3,trace['V'])
-            #plt.show()
-            traces.append(trace)
+    extract_features_from_files(files_in,current_amplitudes,args.stim_dur,args.stim_start,
+                                args.sampling_rate,files_out=[folder+'/'+file_out])
 
-    features = efel.getFeatureValues(traces,feature_names)
+    plt.xlabel('Time (ms)')
+    plt.ylabel('Voltage (mV)')
+    plt.savefig(folder+'/'+file_out.split('.pkl')[0]+'.pdf',dpi=300)
+    plt.show()
 
-    idx = np.argsort(amplitudes)
-    amplitudes = [amplitudes[jdx] for jdx in idx]
-    durations = [durations[jdx] for jdx in idx]
-    features = [features[jdx] for jdx in idx]
-
-    pickle.dump(features,open(folder + '/features.pkl','w'))
-    pickle.dump(amplitudes,open(folder + '/amplitudes.pkl','w'))
-    pickle.dump(durations,open(folder + '/durations.pkl','w'))
-
-    print('-------------------------------------------------------')
-    for feat,amp in zip(features,amplitudes):
-        print('>>> Amplitude: %f pA' % amp)
-        for name,values in feat.items():
-            try:
-                print('%s has the following values: %s' % \
-                      (name, ', '.join([str(x) for x in values])))
-            except:
-                print('{} has the following values: \033[91m'.format(name) + str(values) + '\033[0m')
-        print('-------------------------------------------------------')
 
 
 ############################################################

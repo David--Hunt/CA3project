@@ -5,10 +5,10 @@ import sys
 import argparse as arg
 
 def main():
-    parser = arg.ArgumentParser(description='Optimize a multi-compartment neuron model.')
+    parser = arg.ArgumentParser(description='Simulate a passive neuron model described by an SWC morphology file.')
     parser.add_argument('swc_file', type=str, action='store', help='SWC file')
-    parser.add_argument('--el', type=float, help='Leak reversal potential')
-    parser.add_argument('--gl', type=float, help='Leak conductance')
+    parser.add_argument('--el', default=-70., type=float, help='Leak reversal potential')
+    parser.add_argument('--gl', default=3e-5, type=float, help='Leak conductance')
     parser.add_argument('--ra', default=1.0, type=float, help='Axial resistance')
     parser.add_argument('--cm', default=1.0, type=float, help='Somatic and axonal capacitance')
     parser.add_argument('--cm-basal', default=2.0, type=float, help='Basal dendrite capacitance')
@@ -20,7 +20,7 @@ def main():
         sys.exit(0)
         
     swc_filename = args.swc_file
-    cell_name = os.path.basename(swc_filename).split('-.')[0].replace('-','_')
+    #cell_name = os.path.basename(swc_filename).split('-.')[0].replace('-','_')
         
     dI = -0.1                 # [nA]
     Ra = args.ra
@@ -55,10 +55,10 @@ def main():
     El_param = ephys.parameters.NrnSectionParameter(name='e_pas',param_name='e_pas',value=El,
                                                     locations=locations,frozen=True)
 
-    CA3_cell = ephys.models.CellModel(name='CA3_cell',morph=morph,mechs=[pas_mech],
-                                      params=[Ra_param, cm_param, cm_basal_param, cm_apical_param, gpas_param, El_param])
+    cell = ephys.models.CellModel(name='cell',morph=morph,mechs=[pas_mech],
+                                  params=[Ra_param, cm_param, cm_basal_param, cm_apical_param, gpas_param, El_param])
 
-    print(CA3_cell)
+    print(cell)
 
     ### let's create the stimulation protocol
     # where current will be injected
@@ -75,7 +75,7 @@ def main():
     nrn.neuron.h.celsius = 34
     
     #### let's simulate the optimal protocol
-    responses = step_protocols.run(cell_model=CA3_cell, param_values={}, sim=nrn)
+    responses = step_protocols.run(cell_model=cell, param_values={}, sim=nrn)
 
     import numpy as np
     from scipy.optimize import curve_fit

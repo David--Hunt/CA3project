@@ -1,0 +1,30 @@
+{
+    "Step1": {
+        "soma": {
+            "mean_frequency" : [
+                1,
+                0.1
+            ],
+	    "doublet_ISI" : [
+		10,
+		1
+	    ]
+        }
+    }
+    "Step2": {
+        "soma": {
+            "mean_frequency" : [
+                2,
+                0.2
+            ]
+        }
+    }
+    "Step3": {
+        "soma": {
+            "mean_frequency" : [
+                5,
+                0.5
+            ]
+        }
+    }
+}

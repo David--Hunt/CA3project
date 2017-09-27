@@ -10,7 +10,7 @@ import btmorph
 # the name of this script
 progname = os.path.basename(sys.argv[0])
 # the standard SWC types
-SWC_types = {'soma': 1, 'axon': 2, 'basal': 3, 'apical': 4}
+SWC_types = {'soma': 1, 'axon': 2, 'basal': 3, 'apical': 4, 'soma_contour': 16}
 
 ############################################################
 ###                       CONVERT                        ###
@@ -90,6 +90,14 @@ def convert():
     # convert to three-point soma representation
     print('Converting to three-point soma.')
     soma_idx, = np.where(morpho_in[:,1] == SWC_types['soma'])
+    if soma_idx.size == 0:
+        soma_contour = True
+        soma_idx, = np.where(morpho_in[:,1] == SWC_types['soma_contour'])
+        soma_type = SWC_types['soma_contour']
+        print('The contour of the soma contains %d points.' % soma_idx.size)
+    else:
+        soma_contour = False
+        soma_type = SWC_types['soma']
     soma_ids = morpho_in[soma_idx,0]
     center = np.mean(morpho_in[soma_idx,2:5],axis=0)
     print('The center of the soma is at (%.3f,%.3f,%.3f).' % (center[0],center[1],center[2]))
@@ -102,9 +110,11 @@ def convert():
                   [3, SWC_types['soma'], 0, radius, 0, radius, 1]]
 
     for entry in morpho_in:
-        if entry[1] != SWC_types['soma']:
+        if entry[1] != soma_type:
             # do not add entries that are part of the soma in the original morphology
-            if entry[-1] in soma_ids:
+            if entry[-1] in soma_ids or (soma_contour and entry[-1] == -1):
+                if soma_contour and entry[-1] == -1:
+                    print(entry_to_string(entry))
                 # if an entry's parent belonged to the soma, attach it to the root
                 entry[-1] = 1
             morpho_out.append(entry)
@@ -139,7 +149,7 @@ def convert():
             index = -1
         else:
             index = node.parent.index
-        fid.write('%d %d %f %f %f %f %d\n' % (node.index,node.content['p3d'].type,
+        fid.write('%d %d %g %g %g %g %d\n' % (node.index,node.content['p3d'].type,
                                               xyz[0], xyz[1], xyz[2],
                                               node.content['p3d'].radius, index))
     fid.close()

@@ -9,7 +9,7 @@ import argparse as arg
 import numpy as np
 import matplotlib.pyplot as plt
 import bluepyopt
-import CA3opt
+import dlopt
 
 
 def get_responses(evaluator, individuals, filename=None):
@@ -83,7 +83,7 @@ def main():
         else:
             print('%s: %s: cannot find file.' % (os.path.basename(sys.argv[0]),f))
 
-    evaluator = CA3opt.evaluator.create(cell_name, filenames, config_dir=args.config_dir)
+    evaluator = dlopt.evaluator.create(cell_name, filenames, config_dir=args.config_dir)
     print(evaluator.cell_model)
 
     optimisation = bluepyopt.optimisations.DEAPOptimisation(evaluator=evaluator,offspring_size=args.population_size)

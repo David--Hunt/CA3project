@@ -7,7 +7,7 @@ from neuron import h
 import bluepyopt as bpop
 import bluepyopt.ephys as ephys
 from bluepyopt.ephys.morphologies import NrnFileMorphology
-import CA3opt
+import dlopt
 
 h.load_file('stdrun.hoc')
 h.cvode_active(1)
@@ -23,7 +23,7 @@ dV = Rin * dI             # [mV]
 tau = Rm*cm*1e-3          # [ms]
 
 swc_filename = '/Users/daniele/Postdoc/Research/Janelia/SWCs/FINAL/thorny/DH070813-.Edit.scaled.converted.simplified.swc'
-# morph = CA3opt.morphology.SWCFileSimplifiedMorphology(swc_filename)
+# morph = dlopt.morphology.SWCFileSimplifiedMorphology(swc_filename)
 morph = ephys.morphologies.NrnFileMorphology(swc_filename)
     
 locations = []
